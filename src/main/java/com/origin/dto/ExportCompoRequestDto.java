@@ -6,4 +6,5 @@ import lombok.Data;
 public class ExportCompoRequestDto {
     private String texteFormatte;
     private boolean envoyerSurDiscord;
+    private String overrideChannelId;
 }

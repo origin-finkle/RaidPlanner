@@ -1,16 +1,22 @@
 package com.origin.service;
 
 import com.origin.dto.ExportCompoRequestDto;
+import com.origin.dto.PersonnageDTO;
 import com.origin.dto.PersonnageCompositionDTO;
+import com.origin.dto.RaidCompositionStateDTO;
 import com.origin.dto.RaidCompositionDTO;
-import com.origin.dto.RaidDTO;
+import com.origin.dto.RaidPublicationComparisonDTO;
+import com.origin.dto.RaidPublicationHistoryDTO;
+import com.origin.dto.UpdateRaidCompositionStateRequestDTO;
 import com.origin.entity.Joueur;
 import com.origin.entity.Personnage;
 import com.origin.entity.Raid;
 import com.origin.entity.RaidInscription;
-import com.origin.repository.JoueurRepository;
+import com.origin.entity.RaidPublicationHistory;
+import com.origin.enumOrigin.CompositionWorkflowStatus;
 import com.origin.repository.PersonnageRepository;
 import com.origin.repository.RaidInscriptionRepository;
+import com.origin.repository.RaidPublicationHistoryRepository;
 import com.origin.repository.RaidRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,10 +25,15 @@ import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.interactions.components.buttons.Button;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
-import java.util.*;
+import java.text.Normalizer;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.LinkedHashSet;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -31,114 +42,257 @@ import java.util.stream.Stream;
 @RequiredArgsConstructor
 public class RaidService {
     private final RaidRepository raidRepository;
-    private final JoueurRepository joueurRepository;
     private final PersonnageRepository personnageRepository;
     private final JDA jda;
     private final RaidInscriptionRepository raidInscriptionRepository;
+    private final RaidPublicationHistoryRepository raidPublicationHistoryRepository;
 
     public void saveComposition(RaidCompositionDTO dto) {
-        Optional<Raid> optionalRaid = raidRepository.findById(dto.getRaidId());
-        if (optionalRaid.isEmpty()) {
-            throw new IllegalArgumentException("Raid non trouvé : " + dto.getRaidId());
+        Raid raid = raidRepository.findById(dto.getRaidId())
+                .orElseThrow(() -> new IllegalArgumentException("Raid non trouve : " + dto.getRaidId()));
+
+        if (raid.isCompositionLocked()) {
+            throw new IllegalStateException("La composition de ce raid est verrouillee.");
         }
 
-        Raid raid = optionalRaid.get();
-
-        // Clear anciennes compositions si tu les enregistres
         raid.getGroup1().clear();
         raid.getGroup2().clear();
-
         raid.setGroup1(mapToPersonnages(dto.getGroup1()));
         raid.setGroup2(mapToPersonnages(dto.getGroup2()));
-
+        if (raid.getCompositionStatus() == CompositionWorkflowStatus.PUBLISHED) {
+            raid.setCompositionStatus(CompositionWorkflowStatus.READY);
+        } else if (raid.getCompositionStatus() == null) {
+            raid.setCompositionStatus(CompositionWorkflowStatus.DRAFT);
+        }
         raidRepository.save(raid);
     }
 
-    private Set<Personnage> mapToPersonnages(List<PersonnageCompositionDTO> dtoList) {
-        return dtoList.stream()
-                .map(dto -> personnageRepository.findByNomStrict(dto.getNom())
-                        .orElseThrow(() -> new RuntimeException("Personnage non trouvé : " + dto.getNom())))
-                .collect(Collectors.toSet());
+    public RaidCompositionStateDTO updateCompositionState(Long raidId, UpdateRaidCompositionStateRequestDTO request) {
+        Raid raid = getRaidById(raidId);
+
+        if (request.getStatus() != null) {
+            raid.setCompositionStatus(request.getStatus());
+        }
+        if (request.getLocked() != null) {
+            raid.setCompositionLocked(request.getLocked());
+        }
+
+        raidRepository.save(raid);
+        return toCompositionStateDto(raid);
     }
 
+    public RaidCompositionStateDTO getCompositionState(Long raidId) {
+        return toCompositionStateDto(getRaidById(raidId));
+    }
+
+    public RaidPublicationComparisonDTO getPublicationComparison(Long raidId) {
+        Raid raid = getRaidById(raidId);
+
+        List<PersonnageDTO> currentGroup1 = raid.getGroup1().stream()
+                .map(this::personnageToDto)
+                .collect(Collectors.toList());
+        List<PersonnageDTO> currentGroup2 = raid.getGroup2().stream()
+                .map(this::personnageToDto)
+                .collect(Collectors.toList());
+
+        List<PersonnageDTO> publishedGroup1 = loadSnapshotCharacters(raid.getLastPublishedGroup1Snapshot()).stream()
+                .map(this::personnageToDto)
+                .collect(Collectors.toList());
+        List<PersonnageDTO> publishedGroup2 = loadSnapshotCharacters(raid.getLastPublishedGroup2Snapshot()).stream()
+                .map(this::personnageToDto)
+                .collect(Collectors.toList());
+
+        return RaidPublicationComparisonDTO.builder()
+                .raidId(raid.getId())
+                .raidNom(raid.getNom())
+                .raidDate(raid.getDate())
+                .lastPublishedAt(raid.getLastPublishedAt())
+                .hasPublishedSnapshot(hasPublishedSnapshot(raid))
+                .currentGroup1(currentGroup1)
+                .currentGroup2(currentGroup2)
+                .publishedGroup1(publishedGroup1)
+                .publishedGroup2(publishedGroup2)
+                .currentOnlyPlayers(computeCharacterDifference(
+                        Stream.concat(currentGroup1.stream(), currentGroup2.stream()).collect(Collectors.toList()),
+                        Stream.concat(publishedGroup1.stream(), publishedGroup2.stream()).collect(Collectors.toList())
+                ))
+                .publishedOnlyPlayers(computeCharacterDifference(
+                        Stream.concat(publishedGroup1.stream(), publishedGroup2.stream()).collect(Collectors.toList()),
+                        Stream.concat(currentGroup1.stream(), currentGroup2.stream()).collect(Collectors.toList())
+                ))
+                .build();
+    }
 
     public void exportFormattedComposition(Long raidId, ExportCompoRequestDto request) {
-        Optional<Raid> raidOpt = raidRepository.findById(raidId);
-        if (raidOpt.isEmpty()) throw new IllegalArgumentException("Raid introuvable : " + raidId);
-
-        Raid raid = raidOpt.get();
-        boolean publier = request.isEnvoyerSurDiscord();
-
-        if (!publier) return;
-
-        TextChannel channel = jda.getTextChannelById(raid.getChannelId());
-        //Long chanelId = 1355602641748496394L;
-        //TextChannel channel = jda.getTextChannelById(chanelId);
-        if (channel == null) {
-            log.warn("❌ Salon Discord introuvable pour ID : {}", raid.getChannelId());
+        Raid raid = getRaidById(raidId);
+        if (!request.isEnvoyerSurDiscord()) {
             return;
         }
 
-        MessageEmbed embed = buildTwoColumnEmbedWithConfirmations(raid);
-        List<Joueur> joueurs = getJoueursFromRaid(raid);
-        String mentions = generateMentionLine(joueurs);
+        String targetChannelId = request.getOverrideChannelId() != null && !request.getOverrideChannelId().isBlank()
+                ? request.getOverrideChannelId().trim()
+                : raid.getChannelId();
 
-        channel.sendMessageEmbeds(embed)
-                .setActionRow(
-                        Button.success("confirm_" + raidId, "✅ Confirmer"),
-                        Button.danger("cancel_" + raidId, "❌ Annuler")
-                )
-                .addContent(mentions)
-                .queue(message -> {
-                    raid.setDiscordMessageId(message.getIdLong());
-                    raidRepository.save(raid);
-                });
+        TextChannel channel = jda.getTextChannelById(targetChannelId);
+        if (channel == null) {
+            log.warn("Salon Discord introuvable pour ID : {}", targetChannelId);
+            return;
+        }
+
+        boolean isUpdate = raid.getPublishedMessageId() != null
+                && Objects.equals(raid.getPublishedChannelId(), targetChannelId);
+
+        if (isUpdate) {
+            channel.retrieveMessageById(raid.getPublishedMessageId()).queue(
+                    existingMessage -> {
+                        if (existingMessage.getAuthor().getId().equals(jda.getSelfUser().getId())) {
+                            existingMessage.delete().queue(
+                                    success -> publishCompositionMessage(channel, raid.getId(), targetChannelId, true),
+                                    error -> publishCompositionMessage(channel, raid.getId(), targetChannelId, true)
+                            );
+                        } else {
+                            publishCompositionMessage(channel, raid.getId(), targetChannelId, true);
+                        }
+                    },
+                    error -> publishCompositionMessage(channel, raid.getId(), targetChannelId, true)
+            );
+            return;
+        }
+
+        publishCompositionMessage(channel, raid.getId(), targetChannelId, false);
     }
 
-
     public MessageEmbed buildTwoColumnEmbedWithConfirmations(Raid raid) {
-        EmbedBuilder builder = new EmbedBuilder()
-                .setTitle("🛡️ Composition du raid : " + raid.getNom())
-                .setColor(0x5865F2);
+        return buildTwoColumnEmbedWithConfirmations(raid, false);
+    }
 
-        Map<Long, RaidInscription.StatutInscription> confirmationMap = raidInscriptionRepository
-                .findAll().stream()
-                .filter(i -> i.getRaid().getId().equals(raid.getId()))
+    public MessageEmbed buildTwoColumnEmbedWithConfirmations(Raid raid, boolean updated) {
+        EmbedBuilder builder = new EmbedBuilder()
+                .setTitle(updated
+                        ? "Mise a jour - Composition du raid : " + raid.getNom()
+                        : "Composition du raid : " + raid.getNom())
+                .setColor(0x5865F2)
+                .setThumbnail(getBotAvatarUrl());
+
+        Map<Long, RaidInscription.StatutInscription> confirmationMap = raidInscriptionRepository.findAll().stream()
+                .filter(inscription -> inscription.getRaid().getId().equals(raid.getId()))
                 .collect(Collectors.toMap(
-                        i -> i.getJoueur().getId(),
+                        inscription -> inscription.getJoueur().getId(),
                         RaidInscription::getStatut
                 ));
 
         String group1Text = formatGroupWithConfirmation(raid.getGroup1(), confirmationMap);
         String group2Text = formatGroupWithConfirmation(raid.getGroup2(), confirmationMap);
 
-        builder.addField("Groupe 1", group1Text.isEmpty() ? "—" : group1Text, true);
-        builder.addField("Groupe 2", group2Text.isEmpty() ? "—" : group2Text, true);
-
+        builder.addField("Groupe 1", group1Text.isEmpty() ? "-" : group1Text, true);
+        builder.addField("Groupe 2", group2Text.isEmpty() ? "-" : group2Text, true);
         return builder.build();
     }
 
+    public Raid getRaidById(Long raidId) {
+        return raidRepository.findWithGroups(raidId)
+                .orElseThrow(() -> new IllegalArgumentException("Raid introuvable : " + raidId));
+    }
 
-    private String formatGroupWithConfirmation(Set<Personnage> group, Map<Long, RaidInscription.StatutInscription> confirmationMap) {
+    public void saveRaid(Raid raid) {
+        raidRepository.save(raid);
+    }
+
+    public List<RaidPublicationHistoryDTO> getPublicationHistory() {
+        return raidPublicationHistoryRepository.findTop30ByOrderByPublishedAtDesc().stream()
+                .map(entry -> RaidPublicationHistoryDTO.builder()
+                        .id(entry.getId())
+                        .raidId(entry.getRaid().getId())
+                        .raidNom(entry.getRaid().getNom())
+                        .raidDate(entry.getRaid().getDate())
+                        .channelId(entry.getChannelId())
+                        .guildId(entry.getGuildId())
+                        .messageId(entry.getMessageId())
+                        .updated(entry.isUpdated())
+                        .testPublication(entry.isTestPublication())
+                        .publishedAt(entry.getPublishedAt())
+                        .messageUrl(buildDiscordMessageUrl(entry.getGuildId(), entry.getChannelId(), entry.getMessageId()))
+                        .build())
+                .collect(Collectors.toList());
+    }
+
+    private void publishCompositionMessage(TextChannel channel, Long raidId, String targetChannelId, boolean updated) {
+        Raid freshRaid = getRaidById(raidId);
+        MessageEmbed embed = buildTwoColumnEmbedWithConfirmations(freshRaid, updated);
+        String mentions = generateMentionLine(getJoueursFromRaid(freshRaid));
+
+        channel.sendMessageEmbeds(embed)
+                .setActionRow(
+                        Button.success("confirm_" + freshRaid.getId(), "✅ Confirmer"),
+                        Button.danger("cancel_" + freshRaid.getId(), "❌ Annuler")
+                )
+                .addContent(mentions)
+                .queue(message -> {
+                    boolean mainPublication = Objects.equals(targetChannelId, freshRaid.getChannelId());
+                    if (mainPublication) {
+                        freshRaid.setPublishedMessageId(message.getIdLong());
+                        freshRaid.setPublishedChannelId(targetChannelId);
+                        freshRaid.setLastPublishedAt(LocalDateTime.now());
+                        freshRaid.setLastPublishedGroup1Snapshot(serializeSnapshot(freshRaid.getGroup1()));
+                        freshRaid.setLastPublishedGroup2Snapshot(serializeSnapshot(freshRaid.getGroup2()));
+                        freshRaid.setCompositionStatus(CompositionWorkflowStatus.PUBLISHED);
+                    }
+                    raidRepository.save(freshRaid);
+                    raidPublicationHistoryRepository.save(RaidPublicationHistory.builder()
+                            .raid(freshRaid)
+                            .channelId(targetChannelId)
+                            .guildId(channel.getGuild() != null ? channel.getGuild().getId() : null)
+                            .messageId(message.getIdLong())
+                            .updated(updated)
+                            .testPublication(!Objects.equals(targetChannelId, freshRaid.getChannelId()))
+                            .publishedAt(LocalDateTime.now())
+                            .build());
+                });
+    }
+
+    private RaidCompositionStateDTO toCompositionStateDto(Raid raid) {
+        return RaidCompositionStateDTO.builder()
+                .raidId(raid.getId())
+                .status(raid.getCompositionStatus())
+                .locked(raid.isCompositionLocked())
+                .lastPublishedAt(raid.getLastPublishedAt())
+                .hasPublishedSnapshot(hasPublishedSnapshot(raid))
+                .build();
+    }
+
+    private Set<Personnage> mapToPersonnages(List<PersonnageCompositionDTO> dtoList) {
+        return dtoList.stream()
+                .map(dto -> personnageRepository.findByNomStrict(dto.getNom())
+                        .orElseThrow(() -> new RuntimeException("Personnage non trouve : " + dto.getNom())))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private String formatGroupWithConfirmation(Set<Personnage> group,
+                                               Map<Long, RaidInscription.StatutInscription> confirmationMap) {
         StringBuilder sb = new StringBuilder();
-        int i = 1;
-        for (Personnage p : group) {
-            String emoji = getEmojiFor(p);
-            boolean isConfirmed = confirmationMap.getOrDefault(p.getJoueur().getId(), RaidInscription.StatutInscription.ANNULE)
-                    == RaidInscription.StatutInscription.CONFIRME;
-            sb.append(emoji).append(" `").append(i++).append("` **").append(p.getNom()).append("**");
-            if (isConfirmed) {
-                sb.append(" ✅");
-            }
-            else{
-                sb.append(" ❌");
-            }
-            sb.append("\n");
+        int index = 1;
+
+        for (Personnage personnage : group) {
+            String emoji = getEmojiFor(personnage);
+            boolean confirmed = confirmationMap.getOrDefault(
+                    personnage.getJoueur().getId(),
+                    RaidInscription.StatutInscription.ANNULE
+            ) == RaidInscription.StatutInscription.CONFIRME;
+
+            sb.append(emoji)
+                    .append(" `")
+                    .append(index++)
+                    .append("` **")
+                    .append(personnage.getNom())
+                    .append("**")
+                    .append(confirmed ? " ✅" : " ❌")
+                    .append("\n");
         }
+
         return sb.toString();
     }
 
-    private String getEmojiFor(Personnage p) {
+    private String getEmojiFor(Personnage personnage) {
         Map<String, String> emojiMap = Map.ofEntries(
                 Map.entry("DK-Sang", "<:dk_sang:1363215681570603170>"),
                 Map.entry("DK-Givre", "<:dk_givre:1363215048675299479>"),
@@ -146,11 +300,14 @@ public class RaidService {
                 Map.entry("Druide-Feral", "<:druide_feral:1363215056023588924>"),
                 Map.entry("Druide-Restauration", "<:druide_restauration:1363229950353608787>"),
                 Map.entry("Druide-Equilibre", "<:druide_equilibre:1363215053142364221>"),
-                Map.entry("Paladin-Sacré", "<:paladin_sacre:1363215077452419254>"),
-                Map.entry("Paladin-Rétribution", "<:paladin_retribution:1363215074520727735>"),
-                Map.entry("Paladin-Protection", "<:paladin-protection:1363215984923513033>"),
+                Map.entry("Moine-Maitre brasseur", "<:Brewmaster:637564262167871489>"),
+                Map.entry("Moine-Tisse-brume", "<:Mistweaver:637564262289637433>"),
+                Map.entry("Moine-Marche-vent", "<:Windwalker:637564262054625281>"),
+                Map.entry("Paladin-Sacre", "<:paladin_sacre:1363215077452419254>"),
+                Map.entry("Paladin-Retribution", "<:paladin_retribution:1363215074520727735>"),
+                Map.entry("Paladin-Protection", "<:paladin_protection:1363215984923513033>"),
                 Map.entry("Chaman-Elem", "<:chaman_elem:1363215015540166768>"),
-                Map.entry("Chaman-Amélio", "<:chaman_amelioration:1363214654284894429>"),
+                Map.entry("Chaman-Amelioration", "<:chaman_amelioration:1363214654284894429>"),
                 Map.entry("Chaman-Restauration", "<:chaman_restauration:1363215037757522172>"),
                 Map.entry("Guerrier-Arme", "<:guerrier_arme:1363215059429495024>"),
                 Map.entry("Guerrier-Fury", "<:guerrier_fury:1363215740328611991>"),
@@ -159,54 +316,134 @@ public class RaidService {
                 Map.entry("Voleur-Finesse", "<:voleur_finesse:1363216048442179836>"),
                 Map.entry("Voleur-Assassinat", "<:voleur_assassinat:1363215089427153016>"),
                 Map.entry("Chasseur-Survie", "<:chasseur_survie:1363215042094432286>"),
-                Map.entry("Chasseur-Précision", "<:chasseur_precision:1363215040487887061>"),
+                Map.entry("Chasseur-Precision", "<:chasseur_precision:1363215040487887061>"),
                 Map.entry("Chasseur-BM", "<:chasseur_bm:1363215038911090908>"),
                 Map.entry("Mage-Feu", "<:mage_feu:1363215067826360492>"),
                 Map.entry("Mage-Arcane", "<:mage_arcane:1363215952573104268>"),
-                Map.entry("Mage-Givre", "<:mage_givre:637564231239073802>"),
-                Map.entry("Démoniste-Démonologie", "<:demoniste_demonologie:1363215045768773873>"),
-                Map.entry("Démoniste-Affliction", "<:demoniste_affliction:1363215043453260068>"),
-                Map.entry("Démoniste-Destruction", "<:demoniste_destruction:1363215047337316624>"),
-                Map.entry("Prêtre-Discipline", "<:pretre_discipline:1363215080027853051>"),
-                Map.entry("Prêtre-Ombre", "<:pretre_ombre:1363215649018740847>"),
-                Map.entry("Prêtre-Sacré", "<:pretre_sacre:1363215084003917984>")
+                Map.entry("Mage-Givre", "<:mage_givre:1363215071160959178>"),
+                Map.entry("Demoniste-Demonologie", "<:demoniste_demonologie:1363215045768773873>"),
+                Map.entry("Demoniste-Affliction", "<:demoniste_affliction:1363215043453260068>"),
+                Map.entry("Demoniste-Destruction", "<:demoniste_destruction:1363215047337316624>"),
+                Map.entry("Pretre-Discipline", "<:pretre_discipline:1363215080027853051>"),
+                Map.entry("Pretre-Ombre", "<:pretre_ombre:1363215649018740847>"),
+                Map.entry("Pretre-Sacre", "<:pretre_sacre:1363215084003917984>")
         );
 
-        String classe = p.getClasse();
-        String spe = p.getSpecialisation();
-        String key = classe + "-" + spe;
+        String key = personnage.getClasse() + "-" + personnage.getSpecialisation();
+        String exactEmoji = emojiMap.get(key);
+        if (exactEmoji != null) {
+            return exactEmoji;
+        }
 
-        return emojiMap.getOrDefault(key, "🧍");
+        String normalizedKey = normalizeEmojiKey(key);
+        return emojiMap.entrySet().stream()
+                .filter(entry -> normalizeEmojiKey(entry.getKey()).equals(normalizedKey))
+                .map(Map.Entry::getValue)
+                .findFirst()
+                .orElse("🧍");
     }
 
-
     private List<Joueur> getJoueursFromRaid(Raid raid) {
-        return Stream.concat(
-                        raid.getGroup1().stream(),
-                        raid.getGroup2().stream()
-                )
+        return Stream.concat(raid.getGroup1().stream(), raid.getGroup2().stream())
                 .map(Personnage::getJoueur)
                 .filter(Objects::nonNull)
                 .distinct()
                 .collect(Collectors.toList());
     }
 
-
     private String generateMentionLine(List<Joueur> joueurs) {
         return joueurs.stream()
-                .map(j -> "<@" + j.getDiscordId() + ">")
+                .map(joueur -> "<@" + joueur.getDiscordId() + ">")
                 .collect(Collectors.joining(" "));
     }
 
-    public Raid getRaidById(Long raidId) {
-        return raidRepository.findWithGroups(raidId).orElseThrow(() -> new IllegalArgumentException("Raid introuvable : " + raidId));
+    private String normalizeEmojiKey(String value) {
+        if (value == null) {
+            return "";
+        }
+
+        return Normalizer.normalize(value, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "")
+                .toLowerCase()
+                .replaceAll("[^a-z0-9]", "");
     }
 
-
-    public void saveRaid(Raid raid) {
-        raidRepository.save(raid);
+    private String getBotAvatarUrl() {
+        if (jda.getSelfUser().getEffectiveAvatarUrl() != null) {
+            return jda.getSelfUser().getEffectiveAvatarUrl();
+        }
+        return jda.getSelfUser().getDefaultAvatarUrl();
     }
 
+    private String buildDiscordMessageUrl(String guildId, String channelId, Long messageId) {
+        if (guildId == null || channelId == null || messageId == null) {
+            return null;
+        }
+        return "https://discord.com/channels/" + guildId + "/" + channelId + "/" + messageId;
+    }
 
+    private boolean hasPublishedSnapshot(Raid raid) {
+        return raid.getLastPublishedAt() != null
+                && ((raid.getLastPublishedGroup1Snapshot() != null && !raid.getLastPublishedGroup1Snapshot().isBlank())
+                || (raid.getLastPublishedGroup2Snapshot() != null && !raid.getLastPublishedGroup2Snapshot().isBlank()));
+    }
 
+    private String serializeSnapshot(Set<Personnage> personnages) {
+        return personnages.stream()
+                .map(Personnage::getId)
+                .map(String::valueOf)
+                .collect(Collectors.joining(","));
+    }
+
+    private List<Personnage> loadSnapshotCharacters(String snapshot) {
+        if (snapshot == null || snapshot.isBlank()) {
+            return List.of();
+        }
+
+        List<Long> ids = Stream.of(snapshot.split(","))
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .map(Long::parseLong)
+                .collect(Collectors.toList());
+
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, Personnage> byId = personnageRepository.findAllById(ids).stream()
+                .collect(Collectors.toMap(Personnage::getId, personnage -> personnage));
+
+        return ids.stream()
+                .map(byId::get)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+    }
+
+    private List<String> computeCharacterDifference(List<PersonnageDTO> left, List<PersonnageDTO> right) {
+        Set<String> rightKeys = right.stream()
+                .map(this::characterKey)
+                .collect(Collectors.toSet());
+
+        return left.stream()
+                .filter(personnage -> !rightKeys.contains(characterKey(personnage)))
+                .map(PersonnageDTO::getNom)
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
+    private String characterKey(PersonnageDTO personnage) {
+        return personnage.getId() + "::" + personnage.getNom();
+    }
+
+    private PersonnageDTO personnageToDto(Personnage personnage) {
+        return new PersonnageDTO(
+                personnage.getId(),
+                personnage.getNom(),
+                personnage.getClasse(),
+                personnage.getRole(),
+                personnage.getJoueur() != null ? personnage.getJoueur().getPseudo() : null,
+                personnage.getSpecialisation(),
+                personnage.isMain()
+        );
+    }
 }

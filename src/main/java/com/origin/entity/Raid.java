@@ -1,9 +1,11 @@
 package com.origin.entity;
 
+import com.origin.enumOrigin.CompositionWorkflowStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 import javax.persistence.*;
 import java.time.LocalDateTime;
@@ -14,7 +16,8 @@ import java.util.Set;
 
 @Entity
 @Table(name = "raids")
-@Data
+@Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
@@ -46,12 +49,48 @@ public class Raid {
     @Column(name = "discord_message_id")
     private Long discordMessageId;
 
+    @Column(name = "published_message_id")
+    private Long publishedMessageId;
+
+    @Column(name = "published_channel_id")
+    private String publishedChannelId;
+
+    @Column(name = "last_missing_ping_source_message_id")
+    private Long lastMissingPingSourceMessageId;
+
+    @Column(name = "last_missing_ping_at")
+    private LocalDateTime lastMissingPingAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "composition_status")
+    @Builder.Default
+    private CompositionWorkflowStatus compositionStatus = CompositionWorkflowStatus.DRAFT;
+
+    @Column(name = "composition_locked")
+    @Builder.Default
+    private Boolean compositionLocked = false;
+
+    @Column(name = "last_published_at")
+    private LocalDateTime lastPublishedAt;
+
+    @Column(name = "last_published_group1_snapshot", length = 255)
+    private String lastPublishedGroup1Snapshot;
+
+    @Column(name = "last_published_group2_snapshot", length = 255)
+    private String lastPublishedGroup2Snapshot;
+
     @OneToMany(fetch = FetchType.LAZY)
     @JoinColumn(name = "group1_id")
-    private Set<Personnage> group1;
+    @Builder.Default
+    private Set<Personnage> group1 = new HashSet<>();
 
     @OneToMany(fetch = FetchType.LAZY)
     @JoinColumn(name = "group2_id")
-    private Set<Personnage> group2;
+    @Builder.Default
+    private Set<Personnage> group2 = new HashSet<>();
+
+    public boolean isCompositionLocked() {
+        return Boolean.TRUE.equals(compositionLocked);
+    }
 }
 

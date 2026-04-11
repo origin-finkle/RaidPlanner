@@ -1,26 +1,33 @@
 package com.origin.discord;
 
 import com.origin.entity.Raid;
-import com.origin.repository.RaidRepository;
 import com.origin.service.RaidInscriptionService;
 import com.origin.service.RaidService;
+import com.origin.service.discord.DiscordCustomSignupService;
 import com.origin.service.discord.RaidDiscordScannerService;
 import com.origin.service.discord.RaidHelperParserService;
 import lombok.extern.slf4j.Slf4j;
 import net.dv8tion.jda.api.JDA;
+import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
+import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
+import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.events.message.MessageUpdateEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
+import net.dv8tion.jda.api.interactions.callbacks.IReplyCallback;
+import net.dv8tion.jda.api.interactions.components.text.TextInput;
+import net.dv8tion.jda.api.interactions.components.text.TextInputStyle;
+import net.dv8tion.jda.api.interactions.modals.Modal;
 import org.jetbrains.annotations.NotNull;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 @Slf4j
@@ -31,53 +38,58 @@ public class DiscordEventListener extends ListenerAdapter {
     private final RaidDiscordScannerService raidScannerService;
     private final RaidInscriptionService raidInscriptionService;
     private final RaidService raidService;
+    private final DiscordCustomSignupService discordCustomSignupService;
     private final JDA jda;
 
     public DiscordEventListener(RaidHelperParserService parserService,
-                                RaidDiscordScannerService raidScannerService, RaidInscriptionService raidInscriptionService,
-                                RaidService raidService, JDA jda) {
+                                RaidDiscordScannerService raidScannerService,
+                                RaidInscriptionService raidInscriptionService,
+                                RaidService raidService,
+                                DiscordCustomSignupService discordCustomSignupService,
+                                JDA jda) {
         this.parserService = parserService;
         this.raidScannerService = raidScannerService;
         this.raidInscriptionService = raidInscriptionService;
         this.raidService = raidService;
+        this.discordCustomSignupService = discordCustomSignupService;
         this.jda = jda;
     }
 
     @Override
     public void onMessageReceived(@NotNull MessageReceivedEvent event) {
-        if (!event.getAuthor().isBot()) return;
+        if (!event.getAuthor().isBot()) {
+            return;
+        }
 
         String botName = event.getAuthor().getName();
         String channel = event.getChannel().getName();
         String raw = event.getMessage().getContentRaw();
 
-        System.out.println("🤖 Message reçu d'un bot : " + botName);
-        System.out.println("📍 Channel : #" + channel);
+        log.info("Message recu d'un bot: {}", botName);
+        log.info("Channel: #{}", channel);
 
-        // Texte brut (souvent vide pour Raid Helper)
         if (!raw.isEmpty()) {
-            System.out.println("📝 Message brut : \n" + raw);
+            log.info("Message brut:\n{}", raw);
         }
 
-        // Embeds (utilisé par Raid Helper)
-        if (!event.getMessage().getEmbeds().isEmpty()) {
-            MessageEmbed embed = event.getMessage().getEmbeds().get(0);
-            if (parserService.isRaidHelperEmbed(event.getMessage())) {
-                // 👇 Déclenche un scan du salon
-                String channelId = event.getChannel().getId();
-                raidScannerService.scanAndImportRaids(List.of(channelId));
-            }
+        if (!event.getMessage().getEmbeds().isEmpty() && parserService.isRaidHelperEmbed(event.getMessage())) {
+            String channelId = event.getChannel().getId();
+            raidScannerService.scanAndImportRaids(List.of(channelId));
         }
     }
 
     @Override
     public void onMessageUpdate(@NotNull MessageUpdateEvent event) {
-        if (!event.getAuthor().isBot()) return;
+        if (!event.getAuthor().isBot()) {
+            return;
+        }
 
         List<MessageEmbed> embeds = event.getMessage().getEmbeds();
-        if (embeds.isEmpty()) return;
+        if (embeds.isEmpty()) {
+            return;
+        }
 
-        System.out.println("✏️ Message RAID HELPER modifié par : " + event.getAuthor().getName());
+        log.info("Message RAID HELPER modifie par: {}", event.getAuthor().getName());
 
         if (parserService.isRaidHelperEmbed(event.getMessage())) {
             String channelId = event.getChannel().getId();
@@ -88,86 +100,201 @@ public class DiscordEventListener extends ListenerAdapter {
     @Override
     public void onButtonInteraction(ButtonInteractionEvent event) {
         try {
-            String[] parts = event.getComponentId().split("_");
-            if (parts.length != 2) return;
+            if (event.getComponentId().startsWith("signup_")) {
+                handleCustomSignupButton(event);
+                return;
+            }
 
-            String action = parts[0]; // "confirm" ou "cancel"
+            String[] parts = event.getComponentId().split("_");
+            if (parts.length != 2) {
+                return;
+            }
+
+            String action = parts[0];
             Long raidId = Long.parseLong(parts[1]);
             String discordId = event.getUser().getId();
 
-            // Récupération du raid
             Optional<Raid> raidOpt = Optional.ofNullable(raidService.getRaidById(raidId));
             if (raidOpt.isEmpty()) {
-                event.reply("❌ Raid introuvable.").setEphemeral(true).queue();
+                event.reply("Raid introuvable.").setEphemeral(true).queue();
                 return;
             }
 
             Raid raid = raidOpt.get();
 
-            // Vérification que le joueur est bien dans la compo
-            boolean isInCompo = Stream.concat(
-                            raid.getGroup1().stream(),
-                            raid.getGroup2().stream()
-                    ).map(p -> p.getJoueur().getDiscordId())
+            boolean isInCompo = Stream.concat(raid.getGroup1().stream(), raid.getGroup2().stream())
+                    .map(p -> p.getJoueur().getDiscordId())
                     .filter(Objects::nonNull)
                     .anyMatch(id -> id.equals(discordId));
 
             if (!isInCompo) {
-                event.reply("❌ Tu ne fais pas partie de la composition actuelle.").setEphemeral(true).queue();
+                event.reply("Tu ne fais pas partie de la composition actuelle.").setEphemeral(true).queue();
                 return;
             }
 
-            // Appliquer l'action
-            if (action.equals("confirm")) {
+            if ("confirm".equals(action)) {
                 raidInscriptionService.confirmParticipation(raidId, discordId);
-                event.reply("✅ Tu es inscrit pour le raid !").setEphemeral(true).queue();
-            } else if (action.equals("cancel")) {
+                replyEphemeralAndDelete(event, "Tu es inscrit pour le raid !");
+            } else if ("cancel".equals(action)) {
                 raidInscriptionService.cancelParticipation(raidId, discordId);
-                event.reply("❌ Tu es désinscrit du raid.").setEphemeral(true).queue();
+                replyEphemeralAndDelete(event, "Tu es desinscrit du raid.");
+            } else {
+                return;
             }
 
-            // Mise à jour du message Discord si existant
-            if (raid.getDiscordMessageId() != null && raid.getChannelId() != null) {
-                //Long chanelId = 1355602641748496394L;
-                //TextChannel channel = jda.getTextChannelById(chanelId);
-                TextChannel channel = jda.getTextChannelById(raid.getChannelId());
-
-                if (channel != null) {
-                    channel.retrieveMessageById(raid.getDiscordMessageId()).queue(
-                            original -> {
-                                // ✅ Message trouvé → mise à jour
-                                Raid updatedRaid = raidService.getRaidById(raidId);
-                                MessageEmbed updatedEmbed = raidService.buildTwoColumnEmbedWithConfirmations(updatedRaid);
-                                original.editMessageEmbeds(updatedEmbed).queue();
-                            },
-                            error -> {
-                                // ❌ Message supprimé → republier
-                                log.warn("⚠️ Le message Discord d'origine a été supprimé. Republier un nouveau message...");
-
-                                Raid updatedRaid = raidService.getRaidById(raidId);
-                                MessageEmbed newEmbed = raidService.buildTwoColumnEmbedWithConfirmations(updatedRaid);
-
-                                channel.sendMessageEmbeds(newEmbed).queue(newMsg -> {
-                                    // ✅ Sauvegarde du nouveau messageId
-                                    raid.setDiscordMessageId(Long.valueOf(newMsg.getId()));
-                                    raidService.saveRaid(raid);
-                                    log.info("✅ Nouveau message publié avec ID {}", newMsg.getId());
-                                });
-                            }
-                    );
-                }
-            }else {
-                System.out.println("⚠️ Pas d’ID de message ou de channel pour raidId " + raidId);
-            }
-
+            refreshClickedMessageOrFallback(event, raidId, raid);
         } catch (Exception e) {
-            log.error("❌ Erreur onButtonInteraction : {}", e.getMessage(), e);
-            event.reply("❌ Une erreur est survenue.").setEphemeral(true).queue();
+            log.error("Erreur onButtonInteraction: {}", e.getMessage(), e);
+            event.reply("Une erreur est survenue.").setEphemeral(true).queue();
         }
     }
 
+    @Override
+    public void onStringSelectInteraction(@NotNull StringSelectInteractionEvent event) {
+        try {
+            if (!event.getComponentId().startsWith("signup_select_")) {
+                return;
+            }
 
+            String[] parts = event.getComponentId().split("_");
+            if (parts.length != 5 || event.getValues().isEmpty()) {
+                return;
+            }
 
+            String statusKey = parts[2];
+            Long raidId = Long.parseLong(parts[3]);
+            long sourceMessageId = Long.parseLong(parts[4]);
+            Long personnageId = Long.parseLong(event.getValues().get(0));
 
+            if ("tentative".equalsIgnoreCase(statusKey)) {
+                TextInput reasonInput = TextInput.create("reason", "Raison de la tentative", TextInputStyle.PARAGRAPH)
+                        .setPlaceholder("Ex: peut-etre en retard, disponible sous reserve, reroll si besoin...")
+                        .setMinLength(3)
+                        .setMaxLength(120)
+                        .setRequired(true)
+                        .build();
 
+                event.replyModal(Modal.create(
+                                discordCustomSignupService.buildTentativeReasonModalId(raidId, sourceMessageId, personnageId),
+                                "Motif de la tentative")
+                        .addActionRow(reasonInput)
+                        .build()).queue();
+                return;
+            }
+
+            String message = discordCustomSignupService.registerSignup(
+                    raidId,
+                    event.getUser().getId(),
+                    personnageId,
+                    statusKey
+            );
+
+            replyEphemeralAndDelete(event, message);
+            discordCustomSignupService.refreshSignupMessage(event.getChannel().getId(), sourceMessageId, raidId);
+        } catch (Exception e) {
+            log.error("Erreur onStringSelectInteraction: {}", e.getMessage(), e);
+            event.reply("Une erreur est survenue.").setEphemeral(true).queue();
+        }
+    }
+
+    @Override
+    public void onModalInteraction(@NotNull ModalInteractionEvent event) {
+        try {
+            if (!event.getModalId().startsWith("signup_reason_")) {
+                return;
+            }
+
+            String[] parts = event.getModalId().split("_");
+            if (parts.length != 5) {
+                return;
+            }
+
+            Long raidId = Long.parseLong(parts[2]);
+            long sourceMessageId = Long.parseLong(parts[3]);
+            Long personnageId = Long.parseLong(parts[4]);
+            String reason = Optional.ofNullable(event.getValue("reason"))
+                    .map(value -> value.getAsString())
+                    .orElse("");
+
+            String message = discordCustomSignupService.registerSignup(
+                    raidId,
+                    event.getUser().getId(),
+                    personnageId,
+                    "tentative",
+                    reason
+            );
+
+            replyEphemeralAndDelete(event, message);
+            discordCustomSignupService.refreshSignupMessage(event.getChannel().getId(), sourceMessageId, raidId);
+        } catch (Exception e) {
+            log.error("Erreur onModalInteraction: {}", e.getMessage(), e);
+            event.reply("Une erreur est survenue.").setEphemeral(true).queue();
+        }
+    }
+
+    private void handleCustomSignupButton(ButtonInteractionEvent event) {
+        String[] parts = event.getComponentId().split("_");
+        if (parts.length != 3) {
+            return;
+        }
+
+        String statusKey = parts[1];
+        Long raidId = Long.parseLong(parts[2]);
+
+        List<DiscordCustomSignupService.CharacterChoice> choices = discordCustomSignupService.getCharacterChoices(
+                raidId,
+                event.getUser().getId()
+        );
+
+        event.reply("Choisis le personnage a utiliser pour ce statut.")
+                .addActionRow(discordCustomSignupService.buildCharacterSelectMenu(
+                        statusKey,
+                        raidId,
+                        event.getMessageIdLong(),
+                        choices
+                ))
+                .setEphemeral(true)
+                .queue();
+    }
+
+    private void refreshClickedMessageOrFallback(ButtonInteractionEvent event, Long raidId, Raid raid) {
+        Message clickedMessage = event.getMessage();
+        if (clickedMessage != null && clickedMessage.getAuthor().getId().equals(jda.getSelfUser().getId())) {
+            Raid updatedRaid = raidService.getRaidById(raidId);
+            MessageEmbed updatedEmbed = raidService.buildTwoColumnEmbedWithConfirmations(updatedRaid);
+            clickedMessage.editMessageEmbeds(updatedEmbed).queue();
+            return;
+        }
+
+        if (raid.getPublishedMessageId() == null || raid.getPublishedChannelId() == null) {
+            log.warn("Pas d'ID de message ou de channel pour raidId {}", raidId);
+            return;
+        }
+
+        TextChannel channel = jda.getTextChannelById(raid.getPublishedChannelId());
+        if (channel == null) {
+            log.warn("Channel Discord introuvable pour raidId {}", raidId);
+            return;
+        }
+
+        channel.retrieveMessageById(raid.getPublishedMessageId()).queue(
+                original -> {
+                    if (!original.getAuthor().getId().equals(jda.getSelfUser().getId())) {
+                        log.info("Message {} non modifie: il appartient a {} et non au bot.", original.getId(), original.getAuthor().getName());
+                        return;
+                    }
+
+                    Raid updatedRaid = raidService.getRaidById(raidId);
+                    MessageEmbed updatedEmbed = raidService.buildTwoColumnEmbedWithConfirmations(updatedRaid);
+                    original.editMessageEmbeds(updatedEmbed).queue();
+                },
+                error -> log.warn("Impossible de recuperer le message de composition {} pour le raid {}.", raid.getPublishedMessageId(), raidId)
+        );
+    }
+
+    private void replyEphemeralAndDelete(IReplyCallback event, String message) {
+        event.reply(message)
+                .setEphemeral(true)
+                .queue(hook -> hook.deleteOriginal().queueAfter(4, TimeUnit.SECONDS));
+    }
 }

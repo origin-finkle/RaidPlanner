@@ -1,0 +1,76 @@
+services:
+  db:
+    image: mysql:8.4
+    container_name: origin-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-origin}
+      MYSQL_USER: ${MYSQL_USER:-origin}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      TZ: ${TZ:-Europe/Paris}
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --default-time-zone=+02:00
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: origin-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/${MYSQL_DATABASE:-origin}?useSSL=false&serverTimezone=Europe/Paris&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-origin}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      APP_CORS_ALLOWED_ORIGIN_PATTERNS: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS:-https://planner.example.com}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+      DISCORD_GUILD_ID: ${DISCORD_GUILD_ID}
+      DISCORD_OAUTH_CLIENT_ID: ${DISCORD_OAUTH_CLIENT_ID}
+      DISCORD_OAUTH_CLIENT_SECRET: ${DISCORD_OAUTH_CLIENT_SECRET}
+      DISCORD_OAUTH_REDIRECT_URI: ${DISCORD_OAUTH_REDIRECT_URI}
+      DISCORD_OAUTH_FRONTEND_SUCCESS_URL: ${DISCORD_OAUTH_FRONTEND_SUCCESS_URL}
+      DISCORD_OAUTH_FRONTEND_DENIED_URL: ${DISCORD_OAUTH_FRONTEND_DENIED_URL}
+      DISCORD_RAIDHELPER_CHANNEL_1: ${DISCORD_RAIDHELPER_CHANNEL_1}
+      DISCORD_RAIDHELPER_CHANNEL_2: ${DISCORD_RAIDHELPER_CHANNEL_2}
+      DISCORD_RAIDHELPER_CHANNEL_3: ${DISCORD_RAIDHELPER_CHANNEL_3}
+      DISCORD_RAIDHELPER_CHANNEL_4: ${DISCORD_RAIDHELPER_CHANNEL_4}
+      DISCORD_RAIDHELPER_DEFAULT_TIME: ${DISCORD_RAIDHELPER_DEFAULT_TIME:-20:45}
+      DISCORD_RAIDHELPER_MESSAGE_IDS: ${DISCORD_RAIDHELPER_MESSAGE_IDS:-}
+      TZ: ${TZ:-Europe/Paris}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    build:
+      context: ./raid-planner-ui
+      dockerfile: Dockerfile
+    container_name: origin-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    environment:
+      TZ: ${TZ:-Europe/Paris}
+
+volumes:
+  mysql-data:

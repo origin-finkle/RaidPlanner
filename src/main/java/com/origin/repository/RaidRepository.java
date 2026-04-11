@@ -14,13 +14,23 @@ public interface RaidRepository extends JpaRepository<Raid, Long> {
 
     boolean existsByNomAndDate(String nom, LocalDateTime date);
 
+    boolean existsByDiscordMessageId(Long discordMessageId);
+
     boolean existsByRaidHelperId(String raidHelperId);
 
     Optional<Raid> findByRaidHelperId(String raidHelperId);
 
-    @Query("SELECT r FROM Raid r WHERE r.date > CURRENT_TIMESTAMP")
-    List<Raid> findUpcomingRaids();
+    Optional<Raid> findByNomAndDate(String nom, LocalDateTime date);
 
-    @Query("SELECT r FROM Raid r LEFT JOIN FETCH r.group1 LEFT JOIN FETCH r.group2 WHERE r.id = :id")
+    List<Raid> findByDateGreaterThanEqualOrderByDateAsc(LocalDateTime start);
+
+    List<Raid> findByDateGreaterThanEqualAndDateLessThanOrderByDateAsc(LocalDateTime start, LocalDateTime end);
+
+    @Query("SELECT DISTINCT r FROM Raid r " +
+            "LEFT JOIN FETCH r.group1 g1 " +
+            "LEFT JOIN FETCH g1.joueur " +
+            "LEFT JOIN FETCH r.group2 g2 " +
+            "LEFT JOIN FETCH g2.joueur " +
+            "WHERE r.id = :id")
     Optional<Raid> findWithGroups(@Param("id") Long id);
 }

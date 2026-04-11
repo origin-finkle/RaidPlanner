@@ -17,4 +17,5 @@ public class JoueurDTO {
     private List<PersonnageDTO> rerolls;
     private boolean isRaider;
     private StatutParticipation statutParticipation; // "titulaire", "tentative", "bench", "late"
+    private String commentaireInscription;
 }

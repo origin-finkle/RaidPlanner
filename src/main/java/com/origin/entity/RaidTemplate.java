@@ -30,4 +30,21 @@ public class RaidTemplate {
 
     @Column(name = "message_id")
     private String messageId; // ID du message Raid Helper à surveiller (si applicable)
+    @Column(name = "raid_size")
+    private Integer raidSize;
+
+    @Column(name = "target_tanks")
+    private Integer targetTanks;
+
+    @Column(name = "target_heals")
+    private Integer targetHeals;
+
+    @Column(name = "prefer_mains")
+    private Boolean preferMains;
+
+    @Column(name = "prioritize_buff_coverage")
+    private Boolean prioritizeBuffCoverage;
+
+    @Column(name = "hunters_fill_missing_buffs")
+    private Boolean huntersFillMissingBuffs;
 }

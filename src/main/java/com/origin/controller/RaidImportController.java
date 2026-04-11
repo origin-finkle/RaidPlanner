@@ -7,8 +7,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
-
 @RestController
 @RequestMapping("/api/raids/import")
 @RequiredArgsConstructor
@@ -18,12 +16,8 @@ public class RaidImportController {
 
     @PostMapping
     public ResponseEntity<String> scanDiscordForRaids() {
-        List<String> channelIds = List.of(
-                "1355602641748496394"
-        );
+        int importedCount = raidDiscordScannerService.scanConfiguredRaidHelperChannels();
 
-        raidDiscordScannerService.scanAndImportRaids(channelIds);
-
-        return ResponseEntity.ok("Scan terminé.");
+        return ResponseEntity.ok("Scan termine. " + importedCount + " raid(s) importe(s).");
     }
 }

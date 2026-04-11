@@ -1,0 +1,11 @@
+.git
+.idea
+target
+node_modules
+raid-planner-ui/node_modules
+raid-planner-ui/dist
+dist
+*.log
+.env
+.env.*
+!.env.prod.example
