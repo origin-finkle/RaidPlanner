@@ -54,9 +54,10 @@ services:
       TZ: ${TZ:-Europe/Paris}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      start_period: 240s
       interval: 15s
       timeout: 5s
-      retries: 10
+      retries: 12
 
   frontend:
     build:
