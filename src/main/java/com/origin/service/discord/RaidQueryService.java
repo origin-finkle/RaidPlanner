@@ -26,6 +26,7 @@ import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -52,6 +53,7 @@ import net.dv8tion.jda.api.interactions.components.buttons.Button;
 @Service
 @RequiredArgsConstructor
 public class RaidQueryService {
+    private static final String MANUAL_SIGNUP_COMMENT = "MANUAL_OFFICER_ADD";
 
     private static final Pattern EMOJI_PATTERN = Pattern.compile("<:([\\w]+):(\\d+)>");
     private static final Pattern STATUS_NAME_PATTERN = Pattern.compile("\\*\\*(.+?)\\*\\*");
@@ -267,22 +269,53 @@ public class RaidQueryService {
         boolean sourceChanged = !Objects.equals(originalChannelId, resolvedSource.channelId())
                 || !Objects.equals(originalMessageId, resolvedSource.messageId());
 
-        persistResolvedSignupSource(raid, resolvedSource);
+        if (canWriteInCurrentTransaction()) {
+            persistResolvedSignupSource(raid, resolvedSource);
+        }
         List<JoueurDTO> signups = extractSignupsFromMessage(raid.getChannelId(), raid.getDiscordMessageId(), resolvedSource.message());
         if (!signups.isEmpty()) {
-            persistSignupSnapshot(raid, signups);
-            return signups;
+            if (canWriteInCurrentTransaction()) {
+                persistSignupSnapshot(raid, signups);
+            }
+            return mergeWithManualSignups(raid, signups);
         }
 
         if (sourceChanged) {
             log.warn("Source Discord mise a jour pour le raid {} mais aucun inscrit n'a pu etre extrait depuis le message {}. Snapshot precedent ignore.",
                     raid.getId(),
                     resolvedSource.messageId());
-            inscriptionRepository.deleteByRaidId(raid.getId());
+            if (canWriteInCurrentTransaction()) {
+                inscriptionRepository.deleteByRaidId(raid.getId());
+            }
             return List.of();
         }
 
         return loadPersistedSignups(raid);
+    }
+
+    private List<JoueurDTO> mergeWithManualSignups(Raid raid, List<JoueurDTO> liveSignups) {
+        if (raid == null || raid.getId() == null) {
+            return liveSignups;
+        }
+
+        Map<Long, JoueurDTO> mergedByPlayerId = new LinkedHashMap<>();
+        for (JoueurDTO signup : liveSignups) {
+            if (signup != null && signup.getId() != null) {
+                mergedByPlayerId.put(signup.getId(), signup);
+            }
+        }
+
+        inscriptionRepository.findDetailedByRaidIdOrderByIdAsc(raid.getId()).stream()
+                .filter(this::isManualSignup)
+                .map(this::toSignupDto)
+                .filter(Objects::nonNull)
+                .forEach(signup -> {
+                    if (signup.getId() != null) {
+                        mergedByPlayerId.putIfAbsent(signup.getId(), signup);
+                    }
+                });
+
+        return new ArrayList<>(mergedByPlayerId.values());
     }
 
     private List<JoueurDTO> getInscriptionsFromRaidHelper(String channelId,
@@ -372,6 +405,10 @@ public class RaidQueryService {
             return;
         }
 
+        List<Inscription> preservedManualSignups = inscriptionRepository.findDetailedByRaidIdOrderByIdAsc(raid.getId()).stream()
+                .filter(this::isManualSignup)
+                .collect(Collectors.toList());
+
         inscriptionRepository.deleteByRaidId(raid.getId());
 
         List<Inscription> snapshot = signups.stream()
@@ -385,6 +422,31 @@ public class RaidQueryService {
 
         if (!snapshot.isEmpty()) {
             inscriptionRepository.saveAll(snapshot);
+        }
+
+        if (!preservedManualSignups.isEmpty()) {
+            Set<Long> livePlayerIds = snapshot.stream()
+                    .map(Inscription::getPersonnage)
+                    .filter(Objects::nonNull)
+                    .map(Personnage::getJoueur)
+                    .filter(Objects::nonNull)
+                    .map(Joueur::getId)
+                    .collect(Collectors.toSet());
+
+            List<Inscription> manualToRestore = preservedManualSignups.stream()
+                    .filter(inscription -> inscription.getPersonnage() != null && inscription.getPersonnage().getJoueur() != null)
+                    .filter(inscription -> !livePlayerIds.contains(inscription.getPersonnage().getJoueur().getId()))
+                    .map(inscription -> Inscription.builder()
+                            .raid(raid)
+                            .personnage(inscription.getPersonnage())
+                            .statut(Optional.ofNullable(inscription.getStatut()).orElse(StatutParticipation.TITULAIRE.name()))
+                            .commentaire(MANUAL_SIGNUP_COMMENT)
+                            .build())
+                    .collect(Collectors.toList());
+
+            if (!manualToRestore.isEmpty()) {
+                inscriptionRepository.saveAll(manualToRestore);
+            }
         }
     }
 
@@ -413,10 +475,14 @@ public class RaidQueryService {
             return List.of();
         }
 
-        return inscriptionRepository.findByRaidIdOrderByIdAsc(raid.getId()).stream()
+        return inscriptionRepository.findDetailedByRaidIdOrderByIdAsc(raid.getId()).stream()
                 .map(this::toSignupDto)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
+    }
+
+    private boolean isManualSignup(Inscription inscription) {
+        return inscription != null && MANUAL_SIGNUP_COMMENT.equals(inscription.getCommentaire());
     }
 
     private RaidSignupDiagnosticDTO toSignupDiagnosticDto(JoueurDTO joueurDTO) {
@@ -700,6 +766,9 @@ public class RaidQueryService {
         String context = "message " + messageId + " in channel " + channelId;
 
         if (error.contains("10008") || error.toLowerCase(Locale.ROOT).contains("unknown message")) {
+            if (canWriteInCurrentTransaction()) {
+                cleanupUnknownMessageReferences(channelId, messageId);
+            }
             log.debug("Message Discord introuvable pour {}.", context);
             return;
         }
@@ -710,6 +779,53 @@ public class RaidQueryService {
         }
 
         log.error("Impossible de recuperer {}: {}", context, error);
+    }
+
+    private boolean canWriteInCurrentTransaction() {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            return true;
+        }
+        return !TransactionSynchronizationManager.isCurrentTransactionReadOnly();
+    }
+
+    @Transactional
+    protected void cleanupUnknownMessageReferences(String channelId, Long messageId) {
+        boolean changed = false;
+
+        for (Raid raid : raidRepository.findAllByDiscordMessageId(messageId)) {
+            if (Objects.equals(raid.getChannelId(), channelId) && Objects.equals(raid.getDiscordMessageId(), messageId)) {
+                raid.setDiscordMessageId(null);
+                if (Objects.equals(raid.getLastMissingPingSourceMessageId(), messageId)) {
+                    raid.setLastMissingPingSourceMessageId(null);
+                }
+                if (raid.getRaidHelperId() != null) {
+                    raid.setRaidHelperId(null);
+                }
+                raidRepository.save(raid);
+                changed = true;
+            }
+        }
+
+        for (Raid raid : raidRepository.findAllByPublishedMessageId(messageId)) {
+            if (Objects.equals(raid.getPublishedChannelId(), channelId) && Objects.equals(raid.getPublishedMessageId(), messageId)) {
+                raid.setPublishedMessageId(null);
+                raid.setPublishedChannelId(null);
+                raidRepository.save(raid);
+                changed = true;
+            }
+        }
+
+        for (Raid raid : raidRepository.findAllByLastMissingPingSourceMessageId(messageId)) {
+            if (Objects.equals(raid.getLastMissingPingSourceMessageId(), messageId)) {
+                raid.setLastMissingPingSourceMessageId(null);
+                raidRepository.save(raid);
+                changed = true;
+            }
+        }
+
+        if (changed) {
+            log.info("References Discord obsoletes nettoyees pour le message {} du salon {}", messageId, channelId);
+        }
     }
 
     private boolean matchesExpectedRaid(Message message, String expectedNom, LocalDateTime expectedDate) {

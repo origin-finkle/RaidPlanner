@@ -166,6 +166,13 @@ public class DiscordEventListener extends ListenerAdapter {
             long sourceMessageId = Long.parseLong(parts[4]);
             Long personnageId = Long.parseLong(event.getValues().get(0));
 
+            if (discordCustomSignupService.isSignupClosed(raidId)) {
+                event.reply(discordCustomSignupService.getSignupClosedMessage(raidId))
+                        .setEphemeral(true)
+                        .queue();
+                return;
+            }
+
             if ("tentative".equalsIgnoreCase(statusKey)) {
                 TextInput reasonInput = TextInput.create("reason", "Raison de la tentative", TextInputStyle.PARAGRAPH)
                         .setPlaceholder("Ex: peut-etre en retard, disponible sous reserve, reroll si besoin...")
@@ -216,6 +223,13 @@ public class DiscordEventListener extends ListenerAdapter {
                     .map(value -> value.getAsString())
                     .orElse("");
 
+            if (discordCustomSignupService.isSignupClosed(raidId)) {
+                event.reply(discordCustomSignupService.getSignupClosedMessage(raidId))
+                        .setEphemeral(true)
+                        .queue();
+                return;
+            }
+
             String message = discordCustomSignupService.registerSignup(
                     raidId,
                     event.getUser().getId(),
@@ -240,6 +254,20 @@ public class DiscordEventListener extends ListenerAdapter {
 
         String statusKey = parts[1];
         Long raidId = Long.parseLong(parts[2]);
+
+        if (discordCustomSignupService.isSignupClosed(raidId)) {
+            event.reply(discordCustomSignupService.getSignupClosedMessage(raidId))
+                    .setEphemeral(true)
+                    .queue();
+            return;
+        }
+
+        if ("remove".equalsIgnoreCase(statusKey)) {
+            String message = discordCustomSignupService.removeSignup(raidId, event.getUser().getId());
+            replyEphemeralAndDelete(event, message);
+            discordCustomSignupService.refreshSignupMessage(event.getChannel().getId(), event.getMessageIdLong(), raidId);
+            return;
+        }
 
         List<DiscordCustomSignupService.CharacterChoice> choices = discordCustomSignupService.getCharacterChoices(
                 raidId,

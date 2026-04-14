@@ -20,6 +20,12 @@ public interface RaidRepository extends JpaRepository<Raid, Long> {
 
     Optional<Raid> findByRaidHelperId(String raidHelperId);
 
+    List<Raid> findAllByDiscordMessageId(Long discordMessageId);
+
+    List<Raid> findAllByPublishedMessageId(Long publishedMessageId);
+
+    List<Raid> findAllByLastMissingPingSourceMessageId(Long lastMissingPingSourceMessageId);
+
     Optional<Raid> findByNomAndDate(String nom, LocalDateTime date);
 
     List<Raid> findByDateGreaterThanEqualOrderByDateAsc(LocalDateTime start);

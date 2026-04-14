@@ -5,6 +5,7 @@ import com.origin.dto.AutoComposePreviewResultDTO;
 import com.origin.dto.BenchRecommendationDTO;
 import com.origin.dto.ExportCompoRequestDto;
 import com.origin.dto.MissingRaidPingDTO;
+import com.origin.dto.ManualRaidSignupRequestDTO;
 import com.origin.dto.OfficerDashboardDTO;
 import com.origin.dto.PlayerEquitySummaryDTO;
 import com.origin.dto.PlanningHealthSummaryDTO;
@@ -156,6 +157,18 @@ public class RaidController {
     @PostMapping("/{id}/signup-flow/test")
     public ResponseEntity<String> publishCustomSignupFlowToTestChannel(@PathVariable Long id) {
         return ResponseEntity.ok(discordCustomSignupService.publishTestSignupMessage(id));
+    }
+
+    @PostMapping("/{id}/manual-signups")
+    public ResponseEntity<Void> addManualSignup(@PathVariable Long id, @RequestBody ManualRaidSignupRequestDTO request) {
+        raidService.addManualSignup(id, request.getPersonnageId());
+        return ResponseEntity.ok().build();
+    }
+
+    @DeleteMapping("/{id}/manual-signups/{personnageId}")
+    public ResponseEntity<Void> removeManualSignup(@PathVariable Long id, @PathVariable Long personnageId) {
+        raidService.removeManualSignup(id, personnageId);
+        return ResponseEntity.ok().build();
     }
 
     @GetMapping("/planning-health")

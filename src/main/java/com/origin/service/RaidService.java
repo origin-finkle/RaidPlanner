@@ -9,12 +9,14 @@ import com.origin.dto.RaidPublicationComparisonDTO;
 import com.origin.dto.RaidPublicationHistoryDTO;
 import com.origin.dto.UpdateRaidCompositionStateRequestDTO;
 import com.origin.entity.Joueur;
+import com.origin.entity.Inscription;
 import com.origin.entity.Personnage;
 import com.origin.entity.Raid;
 import com.origin.entity.RaidInscription;
 import com.origin.entity.RaidPublicationHistory;
 import com.origin.enumOrigin.CompositionWorkflowStatus;
 import com.origin.repository.PersonnageRepository;
+import com.origin.repository.InscriptionRepository;
 import com.origin.repository.RaidInscriptionRepository;
 import com.origin.repository.RaidPublicationHistoryRepository;
 import com.origin.repository.RaidRepository;
@@ -26,14 +28,19 @@ import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.interactions.components.buttons.Button;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.text.Normalizer;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.LinkedHashSet;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -41,8 +48,12 @@ import java.util.stream.Stream;
 @Service
 @RequiredArgsConstructor
 public class RaidService {
+    private static final DateTimeFormatter DISCORD_RAID_DATE_FORMATTER =
+            DateTimeFormatter.ofPattern("EEEE d MMMM 'a' HH:mm", Locale.FRANCE);
+
     private final RaidRepository raidRepository;
     private final PersonnageRepository personnageRepository;
+    private final InscriptionRepository inscriptionRepository;
     private final JDA jda;
     private final RaidInscriptionRepository raidInscriptionRepository;
     private final RaidPublicationHistoryRepository raidPublicationHistoryRepository;
@@ -65,6 +76,70 @@ public class RaidService {
             raid.setCompositionStatus(CompositionWorkflowStatus.DRAFT);
         }
         raidRepository.save(raid);
+    }
+
+    @Transactional
+    public void addManualSignup(Long raidId, Long personnageId) {
+        if (personnageId == null) {
+            throw new IllegalArgumentException("Le personnage est obligatoire.");
+        }
+
+        Raid raid = raidRepository.findById(raidId)
+                .orElseThrow(() -> new IllegalArgumentException("Raid non trouve : " + raidId));
+        Personnage personnage = personnageRepository.findById(personnageId)
+                .orElseThrow(() -> new IllegalArgumentException("Personnage non trouve : " + personnageId));
+
+        if (personnage.getJoueur() == null) {
+            throw new IllegalArgumentException("Le personnage selectionne n'est rattache a aucun joueur.");
+        }
+
+        inscriptionRepository.deleteByRaidIdAndJoueurId(raidId, personnage.getJoueur().getId());
+        inscriptionRepository.save(Inscription.builder()
+                .raid(raid)
+                .personnage(personnage)
+                .statut("TITULAIRE")
+                .commentaire("MANUAL_OFFICER_ADD")
+                .build());
+    }
+
+    @Transactional
+    public void removeManualSignup(Long raidId, Long personnageId) {
+        if (personnageId == null) {
+            throw new IllegalArgumentException("Le personnage est obligatoire.");
+        }
+
+        Raid raid = raidRepository.findById(raidId)
+                .orElseThrow(() -> new IllegalArgumentException("Raid non trouve : " + raidId));
+        Personnage personnage = personnageRepository.findById(personnageId)
+                .orElseThrow(() -> new IllegalArgumentException("Personnage non trouve : " + personnageId));
+
+        if (personnage.getJoueur() == null) {
+            throw new IllegalArgumentException("Le personnage selectionne n'est rattache a aucun joueur.");
+        }
+
+        Long joueurId = personnage.getJoueur().getId();
+        boolean hasManualSignup = inscriptionRepository.findDetailedByRaidIdOrderByIdAsc(raidId).stream()
+                .anyMatch(inscription ->
+                        inscription.getPersonnage() != null
+                                && inscription.getPersonnage().getJoueur() != null
+                                && joueurId.equals(inscription.getPersonnage().getJoueur().getId())
+                                && "MANUAL_OFFICER_ADD".equals(inscription.getCommentaire()));
+
+        if (!hasManualSignup) {
+            return;
+        }
+
+        raid.getGroup1().removeIf(member ->
+                member != null
+                        && member.getJoueur() != null
+                        && joueurId.equals(member.getJoueur().getId()));
+        raid.getGroup2().removeIf(member ->
+                member != null
+                        && member.getJoueur() != null
+                        && joueurId.equals(member.getJoueur().getId()));
+        raidRepository.save(raid);
+
+        inscriptionRepository.deleteByRaidIdAndJoueurId(raidId, joueurId);
     }
 
     public RaidCompositionStateDTO updateCompositionState(Long raidId, UpdateRaidCompositionStateRequestDTO request) {
@@ -167,25 +242,48 @@ public class RaidService {
     }
 
     public MessageEmbed buildTwoColumnEmbedWithConfirmations(Raid raid, boolean updated) {
+        List<Personnage> group1Members = raid.getGroup1().stream()
+                .sorted(Comparator.comparing(Personnage::getNom, String.CASE_INSENSITIVE_ORDER))
+                .collect(Collectors.toList());
+        List<Personnage> group2Members = raid.getGroup2().stream()
+                .sorted(Comparator.comparing(Personnage::getNom, String.CASE_INSENSITIVE_ORDER))
+                .collect(Collectors.toList());
+
+        Map<Long, RaidInscription.StatutInscription> confirmationMap = raidInscriptionRepository
+                .findByRaidIdOrderByIdAsc(raid.getId()).stream()
+                .collect(Collectors.toMap(
+                        inscription -> inscription.getJoueur().getId(),
+                        RaidInscription::getStatut,
+                        (left, right) -> right,
+                        HashMap::new
+                ));
+
+        int totalPlayers = group1Members.size() + group2Members.size();
+        int confirmedCount = countConfirmations(group1Members, group2Members, confirmationMap, RaidInscription.StatutInscription.CONFIRME);
+        int cancelledCount = countConfirmations(group1Members, group2Members, confirmationMap, RaidInscription.StatutInscription.ANNULE);
+        int pendingCount = Math.max(0, totalPlayers - confirmedCount - cancelledCount);
+
         EmbedBuilder builder = new EmbedBuilder()
                 .setTitle(updated
                         ? "Mise a jour - Composition du raid : " + raid.getNom()
                         : "Composition du raid : " + raid.getNom())
                 .setColor(0x5865F2)
-                .setThumbnail(getBotAvatarUrl());
+                .setThumbnail(getBotAvatarUrl())
+                .setDescription(updated
+                        ? "Composition mise a jour. Reponds directement avec les boutons ci-dessous."
+                        : "Composition prete. Reponds directement avec les boutons ci-dessous.")
+                .addField("Quand", formatRaidDate(raid.getDate()), true)
+                .addField("Composition", buildRosterSummary(group1Members, group2Members), true)
+                .addField("Reponses", buildConfirmationSummary(confirmedCount, cancelledCount, pendingCount), true);
 
-        Map<Long, RaidInscription.StatutInscription> confirmationMap = raidInscriptionRepository.findAll().stream()
-                .filter(inscription -> inscription.getRaid().getId().equals(raid.getId()))
-                .collect(Collectors.toMap(
-                        inscription -> inscription.getJoueur().getId(),
-                        RaidInscription::getStatut
-                ));
-
-        String group1Text = formatGroupWithConfirmation(raid.getGroup1(), confirmationMap);
-        String group2Text = formatGroupWithConfirmation(raid.getGroup2(), confirmationMap);
+        String group1Text = formatGroupWithConfirmation(group1Members, confirmationMap);
+        String group2Text = formatGroupWithConfirmation(group2Members, confirmationMap);
 
         builder.addField("Groupe 1", group1Text.isEmpty() ? "-" : group1Text, true);
         builder.addField("Groupe 2", group2Text.isEmpty() ? "-" : group2Text, true);
+        builder.setFooter(updated
+                ? "Origin Raid Planner | composition mise a jour"
+                : "Origin Raid Planner | reponds avec les boutons");
         return builder.build();
     }
 
@@ -290,6 +388,89 @@ public class RaidService {
         }
 
         return sb.toString();
+    }
+
+    private String formatGroupWithConfirmation(List<Personnage> group,
+                                               Map<Long, RaidInscription.StatutInscription> confirmationMap) {
+        StringBuilder sb = new StringBuilder();
+        int index = 1;
+
+        for (Personnage personnage : group) {
+            sb.append(getEmojiFor(personnage))
+                    .append(" `")
+                    .append(index++)
+                    .append("` **")
+                    .append(personnage.getNom())
+                    .append("**")
+                    .append(personnage.isMain() ? "" : " `R`")
+                    .append(" `")
+                    .append(getConfirmationMarker(confirmationMap.get(
+                            personnage.getJoueur() != null ? personnage.getJoueur().getId() : null
+                    )))
+                    .append("`")
+                    .append("\n");
+        }
+
+        return sb.toString();
+    }
+
+    private String formatRaidDate(LocalDateTime raidDate) {
+        if (raidDate == null) {
+            return "-";
+        }
+
+        String formatted = DISCORD_RAID_DATE_FORMATTER.format(raidDate);
+        if (formatted.isBlank()) {
+            return "-";
+        }
+
+        return Character.toUpperCase(formatted.charAt(0)) + formatted.substring(1);
+    }
+
+    private String buildRosterSummary(List<Personnage> group1, List<Personnage> group2) {
+        List<Personnage> roster = Stream.concat(group1.stream(), group2.stream()).collect(Collectors.toList());
+        long tanks = roster.stream().filter(personnage -> hasRole(personnage, "TANK")).count();
+        long heals = roster.stream().filter(personnage -> hasRole(personnage, "HEAL")).count();
+        long dps = roster.stream().filter(personnage -> hasRole(personnage, "DPS")).count();
+
+        return "Total: **" + roster.size() + "**\n"
+                + "Tanks: **" + tanks + "** | Heals: **" + heals + "** | DPS: **" + dps + "**";
+    }
+
+    private String buildConfirmationSummary(int confirmedCount, int cancelledCount, int pendingCount) {
+        return "Confirmes: **" + confirmedCount + "**\n"
+                + "Annules: **" + cancelledCount + "**\n"
+                + "En attente: **" + pendingCount + "**";
+    }
+
+    private int countConfirmations(List<Personnage> group1,
+                                   List<Personnage> group2,
+                                   Map<Long, RaidInscription.StatutInscription> confirmationMap,
+                                   RaidInscription.StatutInscription expectedStatus) {
+        return (int) Stream.concat(group1.stream(), group2.stream())
+                .map(Personnage::getJoueur)
+                .filter(Objects::nonNull)
+                .map(joueur -> confirmationMap.get(joueur.getId()))
+                .filter(expectedStatus::equals)
+                .count();
+    }
+
+    private boolean hasRole(Personnage personnage, String expectedRole) {
+        return personnage != null
+                && personnage.getRole() != null
+                && expectedRole.equalsIgnoreCase(personnage.getRole().trim());
+    }
+
+    private String getConfirmationMarker(RaidInscription.StatutInscription status) {
+        if (status == RaidInscription.StatutInscription.CONFIRME) {
+            return "OK";
+        }
+
+        if (status == RaidInscription.StatutInscription.ANNULE) {
+            return "NON";
+        }
+
+        return "ATT";
     }
 
     private String getEmojiFor(Personnage personnage) {

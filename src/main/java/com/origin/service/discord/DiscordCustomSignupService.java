@@ -4,6 +4,7 @@ import com.origin.entity.Inscription;
 import com.origin.entity.Joueur;
 import com.origin.entity.Personnage;
 import com.origin.entity.Raid;
+import com.origin.enumOrigin.CompositionWorkflowStatus;
 import com.origin.repository.InscriptionRepository;
 import com.origin.repository.JoueurRepository;
 import com.origin.repository.PersonnageRepository;
@@ -16,6 +17,7 @@ import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.interactions.components.ActionRow;
 import net.dv8tion.jda.api.interactions.components.buttons.Button;
 import net.dv8tion.jda.api.interactions.components.selections.SelectOption;
 import net.dv8tion.jda.api.interactions.components.selections.StringSelectMenu;
@@ -61,13 +63,13 @@ public class DiscordCustomSignupService {
 
             if (existing.isPresent()) {
                 existing.get().editMessageEmbeds(buildSignupEmbed(raid))
-                        .setActionRow(buildStatusButtons(raidId))
+                        .setComponents(buildSignupActionRows(raidId))
                         .queue();
                 return;
             }
 
             channel.sendMessageEmbeds(buildSignupEmbed(raid))
-                    .setActionRow(buildStatusButtons(raidId))
+                    .setComponents(buildSignupActionRows(raidId))
                     .queue();
         });
 
@@ -126,6 +128,7 @@ public class DiscordCustomSignupService {
                                  String statusKey,
                                  String commentaire) {
         Raid raid = loadRaid(raidId);
+        ensureSignupOpenForChanges(raid);
         Joueur joueur = joueurRepository.findByDiscordId(discordId)
                 .orElseThrow(() -> new IllegalArgumentException("Joueur Discord introuvable."));
         Personnage personnage = personnageRepository.findById(personnageId)
@@ -147,6 +150,17 @@ public class DiscordCustomSignupService {
         return status.getSuccessMessage(personnage.getNom());
     }
 
+    @Transactional
+    public String removeSignup(Long raidId, String discordId) {
+        Raid raid = loadRaid(raidId);
+        ensureSignupOpenForChanges(raid);
+        Joueur joueur = joueurRepository.findByDiscordId(discordId)
+                .orElseThrow(() -> new IllegalArgumentException("Joueur Discord introuvable."));
+
+        inscriptionRepository.deleteByRaidIdAndJoueurId(raid.getId(), joueur.getId());
+        return "Ton inscription a ete retiree pour " + raid.getNom() + ".";
+    }
+
     public MessageEmbed buildSignupEmbed(Long raidId) {
         return buildSignupEmbed(loadRaid(raidId));
     }
@@ -161,44 +175,57 @@ public class DiscordCustomSignupService {
             if (!Objects.equals(message.getAuthor().getId(), jda.getSelfUser().getId())) {
                 return;
             }
-            message.editMessageEmbeds(buildSignupEmbed(raidId)).queue();
+            message.editMessageEmbeds(buildSignupEmbed(raidId))
+                    .setComponents(buildSignupActionRows(raidId))
+                    .queue();
         });
     }
 
     private MessageEmbed buildSignupEmbed(Raid raid) {
         SignupSummary summary = buildSummary(raid);
+        SignupPhase phase = resolveSignupPhase(raid);
 
         EmbedBuilder builder = new EmbedBuilder()
                 .setTitle("Inscriptions Origin : " + raid.getNom())
-                .setDescription("Inscription Discord maison. Choisis ton statut puis ton personnage.")
+                .setDescription(phase.getDescription())
                 .setColor(0x3B82F6)
                 .setThumbnail(getBotAvatarUrl());
 
-        builder.addField("Quand", raid.getDate().format(RAID_DATE_FORMATTER), true);
+        builder.addField("Quand", formatRaidDate(raid), true);
+        builder.addField("Etat", phase.getLabel(), true);
         builder.addField("Composition", summary.renderRoleSummary(), true);
-        builder.addField(
-                "Etat des inscriptions",
-                "Inscrits: **" + summary.getCount(SignupStatus.TITULAIRE) + "**\n"
-                        + "Tentatives: **" + summary.getCount(SignupStatus.TENTATIVE) + "**\n"
-                        + "Late: **" + summary.getCount(SignupStatus.LATE) + "**\n"
-                        + "Bench: **" + summary.getCount(SignupStatus.BENCH) + "**\n"
-                        + "Absences: **" + summary.getCount(SignupStatus.ABSENCE) + "**",
-                false);
-        builder.addField("Inscrits (" + summary.getCount(SignupStatus.TITULAIRE) + ")", summary.render(SignupStatus.TITULAIRE), true);
-        builder.addField("Tentatives (" + summary.getCount(SignupStatus.TENTATIVE) + ")", summary.render(SignupStatus.TENTATIVE), true);
-        builder.addField("Late / Bench", summary.renderCombined(SignupStatus.LATE, SignupStatus.BENCH), true);
-        builder.addField("Absences (" + summary.getCount(SignupStatus.ABSENCE) + ")", summary.render(SignupStatus.ABSENCE), false);
-        builder.setFooter("Salon test - Inscriptions Origin");
+        builder.addField("Reponses", summary.renderResponseSummary(), true);
+        builder.addField("Inscrits (" + summary.getCount(SignupStatus.TITULAIRE) + ")", summary.render(SignupStatus.TITULAIRE), false);
+        if (summary.getCount(SignupStatus.TENTATIVE) > 0) {
+            builder.addField("Tentatives (" + summary.getCount(SignupStatus.TENTATIVE) + ")", summary.render(SignupStatus.TENTATIVE), false);
+        }
+        if (summary.hasSpecialStatuses()) {
+            builder.addField("Disponibilites speciales", summary.renderSpecialStatuses(), false);
+        }
+        builder.setFooter("Salon test · Inscriptions Origin");
+        builder.setFooter("Origin Raid Planner | " + phase.getFooter());
         return builder.build();
     }
 
-    private List<Button> buildStatusButtons(Long raidId) {
+    public List<ActionRow> buildSignupActionRows(Long raidId) {
+        Raid raid = loadRaid(raidId);
+        SignupPhase phase = resolveSignupPhase(raid);
         return List.of(
-                Button.success(buildStatusComponentId(SignupStatus.TITULAIRE, raidId), "Inscrit"),
-                Button.primary(buildStatusComponentId(SignupStatus.TENTATIVE, raidId), "Tentative"),
-                Button.secondary(buildStatusComponentId(SignupStatus.LATE, raidId), "Late"),
-                Button.secondary(buildStatusComponentId(SignupStatus.BENCH, raidId), "Bench"),
-                Button.danger(buildStatusComponentId(SignupStatus.ABSENCE, raidId), "Absence")
+                ActionRow.of(buildStatusButtons(raidId, phase)),
+                ActionRow.of(disableIfClosed(
+                        Button.danger(buildStatusComponentId(SignupStatus.REMOVE, raidId), "Retirer mon inscription"),
+                        phase
+                ))
+        );
+    }
+
+    private List<Button> buildStatusButtons(Long raidId, SignupPhase phase) {
+        return List.of(
+                disableIfClosed(Button.success(buildStatusComponentId(SignupStatus.TITULAIRE, raidId), "✅ Inscrit"), phase),
+                disableIfClosed(Button.primary(buildStatusComponentId(SignupStatus.TENTATIVE, raidId), "❔ Tentative"), phase),
+                disableIfClosed(Button.secondary(buildStatusComponentId(SignupStatus.LATE, raidId), "🕒 Late"), phase),
+                disableIfClosed(Button.secondary(buildStatusComponentId(SignupStatus.BENCH, raidId), "🪑 Bench"), phase),
+                disableIfClosed(Button.danger(buildStatusComponentId(SignupStatus.ABSENCE, raidId), "❌ Absence"), phase)
         );
     }
 
@@ -288,8 +315,57 @@ public class DiscordCustomSignupService {
         return getEmojiFor(personnage)
                 + " **"
                 + personnage.getNom()
-                + "** - "
-                + buildCharacterDescription(personnage);
+                + "**"
+                + (personnage.isMain() ? "" : " `R`")
+                + " · "
+                + personnage.getClasse()
+                + " "
+                + personnage.getSpecialisation();
+    }
+
+    private String formatRaidDate(Raid raid) {
+        if (raid.getDate() == null) {
+            return "-";
+        }
+
+        String formatted = raid.getDate().format(RAID_DATE_FORMATTER);
+        if (formatted.isBlank()) {
+            return "-";
+        }
+
+        return Character.toUpperCase(formatted.charAt(0)) + formatted.substring(1);
+    }
+
+    public boolean isSignupClosed(Long raidId) {
+        return resolveSignupPhase(loadRaid(raidId)) == SignupPhase.CLOSED;
+    }
+
+    public String getSignupClosedMessage(Long raidId) {
+        return resolveSignupPhase(loadRaid(raidId)) == SignupPhase.CLOSED
+                ? "Les inscriptions sont fermees pour ce raid."
+                : "Les inscriptions restent ouvertes.";
+    }
+
+    private void ensureSignupOpenForChanges(Raid raid) {
+        if (resolveSignupPhase(raid) == SignupPhase.CLOSED) {
+            throw new IllegalStateException("Les inscriptions sont fermees pour ce raid.");
+        }
+    }
+
+    private SignupPhase resolveSignupPhase(Raid raid) {
+        if (raid.isCompositionLocked() || raid.getCompositionStatus() == CompositionWorkflowStatus.PUBLISHED) {
+            return SignupPhase.CLOSED;
+        }
+
+        if (raid.getCompositionStatus() == CompositionWorkflowStatus.READY) {
+            return SignupPhase.FINALIZING;
+        }
+
+        return SignupPhase.OPEN;
+    }
+
+    private Button disableIfClosed(Button button, SignupPhase phase) {
+        return phase == SignupPhase.CLOSED ? button.asDisabled() : button;
     }
 
     private String getEmojiFor(Personnage personnage) {
@@ -413,6 +489,42 @@ public class DiscordCustomSignupService {
                     + "Heal: **" + roleCounts.getOrDefault("Heal", 0) + "**  |  "
                     + "DPS: **" + roleCounts.getOrDefault("DPS", 0) + "**";
         }
+
+        private String renderResponseSummary() {
+            int activeResponses = getCount(SignupStatus.TITULAIRE)
+                    + getCount(SignupStatus.TENTATIVE)
+                    + getCount(SignupStatus.LATE)
+                    + getCount(SignupStatus.BENCH)
+                    + getCount(SignupStatus.ABSENCE);
+            return "Total: **" + activeResponses + "**\n"
+                    + "Inscrits: **" + getCount(SignupStatus.TITULAIRE) + "**\n"
+                    + "Tentatives: **" + getCount(SignupStatus.TENTATIVE) + "**\n"
+                    + "Speciaux: **"
+                    + (getCount(SignupStatus.LATE) + getCount(SignupStatus.BENCH) + getCount(SignupStatus.ABSENCE))
+                    + "**";
+        }
+
+        private String renderSpecialStatuses() {
+            List<String> sections = new ArrayList<>();
+
+            if (getCount(SignupStatus.LATE) > 0) {
+                sections.add("**Late (" + getCount(SignupStatus.LATE) + ")**\n" + render(SignupStatus.LATE));
+            }
+            if (getCount(SignupStatus.BENCH) > 0) {
+                sections.add("**Bench (" + getCount(SignupStatus.BENCH) + ")**\n" + render(SignupStatus.BENCH));
+            }
+            if (getCount(SignupStatus.ABSENCE) > 0) {
+                sections.add("**Absences (" + getCount(SignupStatus.ABSENCE) + ")**\n" + render(SignupStatus.ABSENCE));
+            }
+
+            return sections.isEmpty() ? "Aucun statut special pour le moment." : String.join("\n\n", sections);
+        }
+
+        private boolean hasSpecialStatuses() {
+            return getCount(SignupStatus.LATE) > 0
+                    || getCount(SignupStatus.BENCH) > 0
+                    || getCount(SignupStatus.ABSENCE) > 0;
+        }
     }
 
     public enum SignupStatus {
@@ -420,7 +532,8 @@ public class DiscordCustomSignupService {
         TENTATIVE("tentative", "Tentative enregistree pour %s."),
         LATE("late", "Statut late enregistre pour %s."),
         BENCH("bench", "Statut bench enregistre pour %s."),
-        ABSENCE("absence", "Absence enregistree pour %s.");
+        ABSENCE("absence", "Absence enregistree pour %s."),
+        REMOVE("remove", "Inscription retiree.");
 
         private final String key;
         private final String successTemplate;
@@ -446,6 +559,46 @@ public class DiscordCustomSignupService {
                 }
             }
             return TITULAIRE;
+        }
+    }
+
+    private enum SignupPhase {
+        OPEN(
+                "🟢 Ouvert",
+                "Inscris-toi ou ajuste ton statut directement depuis ce message.",
+                "reponds avec les boutons"
+        ),
+        FINALIZING(
+                "🟠 En finalisation",
+                "Le raid est en cours de finalisation. Tu peux encore ajuster ton statut pour le moment.",
+                "raid en finalisation"
+        ),
+        CLOSED(
+                "🔴 Ferme",
+                "Les inscriptions sont fermees pour ce raid.",
+                "inscriptions fermees"
+        );
+
+        private final String label;
+        private final String description;
+        private final String footer;
+
+        SignupPhase(String label, String description, String footer) {
+            this.label = label;
+            this.description = description;
+            this.footer = footer;
+        }
+
+        public String getLabel() {
+            return label;
+        }
+
+        public String getDescription() {
+            return description;
+        }
+
+        public String getFooter() {
+            return footer;
         }
     }
 }
