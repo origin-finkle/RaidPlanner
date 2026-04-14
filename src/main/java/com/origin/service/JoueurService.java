@@ -42,23 +42,27 @@ public class JoueurService {
     public List<JoueurDTO> findAllJoueurs() {
         return joueurRepository.findAll()
                 .stream()
-                .map(this::toDTO)
+                .map(joueur -> toDTO(joueur, true))
                 .collect(Collectors.toList());
     }
 
 
     public JoueurDTO toDTO(Joueur joueur) {
+        return toDTO(joueur, true);
+    }
+
+    public JoueurDTO toDTO(Joueur joueur, boolean filterPlaceholderDuplicates) {
         if (joueur == null) {
             return null;
         }
 
         Set<Personnage> all = joueur.getPersonnages();
-        Personnage main = resolveDisplayedMainCharacter(joueur, all);
+        Personnage main = resolveDisplayedMainCharacter(joueur, all, filterPlaceholderDuplicates);
         PersonnageDTO mainDto = personnageService.toDTO(main);
 
         List<PersonnageDTO> rerolls = all.stream()
                 .filter(p -> main == null || !p.getId().equals(main.getId()))
-                .filter(p -> !isPlaceholderDuplicate(joueur, p, all))
+                .filter(p -> !filterPlaceholderDuplicates || !isPlaceholderDuplicate(joueur, p, all))
                 .map(personnageService::toDTO)
                 .collect(Collectors.toList());
 
@@ -76,25 +80,27 @@ public class JoueurService {
     }
 
     public JoueurDTO findById(Long id) {
-        return this.toDTO(joueurRepository.findById(id).orElse(null));
+        return this.toDTO(joueurRepository.findById(id).orElse(null), false);
     }
 
-    private Personnage resolveDisplayedMainCharacter(Joueur joueur, Set<Personnage> allCharacters) {
+    private Personnage resolveDisplayedMainCharacter(Joueur joueur,
+                                                     Set<Personnage> allCharacters,
+                                                     boolean filterPlaceholderDuplicates) {
         Personnage currentMain = joueur.getMainCharacter();
-        if (currentMain != null && !isPlaceholderDuplicate(joueur, currentMain, allCharacters)) {
+        if (currentMain != null && (!filterPlaceholderDuplicates || !isPlaceholderDuplicate(joueur, currentMain, allCharacters))) {
             return currentMain;
         }
 
         Optional<Personnage> explicitMain = allCharacters.stream()
                 .filter(Personnage::isMain)
-                .filter(personnage -> !isPlaceholderDuplicate(joueur, personnage, allCharacters))
+                .filter(personnage -> !filterPlaceholderDuplicates || !isPlaceholderDuplicate(joueur, personnage, allCharacters))
                 .findFirst();
         if (explicitMain.isPresent()) {
             return explicitMain.get();
         }
 
         Optional<Personnage> firstRealCharacter = allCharacters.stream()
-                .filter(personnage -> !isPlaceholderDuplicate(joueur, personnage, allCharacters))
+                .filter(personnage -> !filterPlaceholderDuplicates || !isPlaceholderDuplicate(joueur, personnage, allCharacters))
                 .findFirst();
         if (firstRealCharacter.isPresent()) {
             return firstRealCharacter.get();

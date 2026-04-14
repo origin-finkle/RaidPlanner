@@ -405,7 +405,7 @@ public class DiscordCustomSignupService {
                 Map.entry("Pretre-Sacre", "<:pretre_sacre:1363215084003917984>")
         );
 
-        String key = personnage.getClasse() + "-" + personnage.getSpecialisation();
+        String key = canonicalEmojiKey(personnage.getClasse(), personnage.getSpecialisation());
         String exactEmoji = emojiMap.get(key);
         if (exactEmoji != null) {
             return exactEmoji;
@@ -428,6 +428,143 @@ public class DiscordCustomSignupService {
                 .replaceAll("\\s+", " ")
                 .trim()
                 .toLowerCase(Locale.ROOT);
+    }
+
+    private String canonicalEmojiKey(String classe, String specialisation) {
+        return canonicalEmojiClass(classe) + "-" + canonicalEmojiSpec(specialisation);
+    }
+
+    private String canonicalEmojiClass(String value) {
+        String normalized = normalizeEmojiKey(value);
+        switch (normalized) {
+            case "death knight":
+            case "deathknight":
+            case "chevalier de la mort":
+            case "dk":
+                return "DK";
+            case "druide":
+            case "druid":
+                return "Druide";
+            case "moine":
+            case "monk":
+                return "Moine";
+            case "paladin":
+                return "Paladin";
+            case "chaman":
+            case "shaman":
+                return "Chaman";
+            case "guerrier":
+            case "warrior":
+                return "Guerrier";
+            case "voleur":
+            case "rogue":
+                return "Voleur";
+            case "chasseur":
+            case "hunter":
+                return "Chasseur";
+            case "mage":
+                return "Mage";
+            case "demoniste":
+            case "warlock":
+                return "Demoniste";
+            case "pretre":
+            case "priest":
+                return "Pretre";
+            default:
+                return value;
+        }
+    }
+
+    private String canonicalEmojiSpec(String value) {
+        String normalized = normalizeEmojiKey(value);
+        switch (normalized) {
+            case "blood":
+            case "sang":
+                return "Sang";
+            case "frost":
+            case "givre":
+                return "Givre";
+            case "unholy":
+            case "impie":
+                return "Impie";
+            case "feral":
+                return "Feral";
+            case "balance":
+            case "equilibre":
+                return "Equilibre";
+            case "restoration":
+            case "restauration":
+                return "Restauration";
+            case "brewmaster":
+            case "maitre brasseur":
+                return "Maitre brasseur";
+            case "mistweaver":
+            case "tisse brume":
+            case "tisse-brume":
+                return "Tisse-brume";
+            case "windwalker":
+            case "marche vent":
+            case "marche-vent":
+                return "Marche-vent";
+            case "holy":
+            case "sacre":
+                return "Sacre";
+            case "retribution":
+            case "retri":
+            case "ret":
+                return "Retribution";
+            case "protection":
+                return "Protection";
+            case "elemental":
+            case "elem":
+                return "Elem";
+            case "enhancement":
+            case "amelio":
+            case "amelioration":
+                return "Amelioration";
+            case "arms":
+            case "arme":
+                return "Arme";
+            case "fury":
+                return "Fury";
+            case "combat":
+                return "Combat";
+            case "assassination":
+            case "assassinat":
+                return "Assassinat";
+            case "subtlety":
+            case "finesse":
+                return "Finesse";
+            case "survival":
+            case "survie":
+                return "Survie";
+            case "marksmanship":
+            case "precision":
+                return "Precision";
+            case "beast mastery":
+            case "beastmastery":
+            case "bm":
+                return "BM";
+            case "fire":
+            case "feu":
+                return "Feu";
+            case "arcane":
+                return "Arcane";
+            case "demonology":
+            case "demonologie":
+                return "Demonologie";
+            case "affliction":
+                return "Affliction";
+            case "destruction":
+                return "Destruction";
+            case "discipline":
+                return "Discipline";
+            case "shadow":
+            case "ombre":
+                return "Ombre";
+            default:
+                return value;
+        }
     }
 
     private String getBotAvatarUrl() {
