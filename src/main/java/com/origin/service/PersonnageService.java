@@ -3,15 +3,18 @@ package com.origin.service;
 import com.origin.dto.PersonnageDTO;
 import com.origin.entity.Joueur;
 import com.origin.entity.Personnage;
+import com.origin.entity.Raid;
 import com.origin.repository.CompositionRepository;
 import com.origin.repository.InscriptionRepository;
 import com.origin.repository.JoueurRepository;
 import com.origin.repository.PersonnageRepository;
+import com.origin.repository.RaidRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import javax.persistence.EntityNotFoundException;
 import javax.transaction.Transactional;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -22,6 +25,7 @@ public class PersonnageService {
     private final JoueurRepository joueurRepository;
     private final CompositionRepository compositionRepository;
     private final InscriptionRepository inscriptionRepository;
+    private final RaidRepository raidRepository;
 
 
     public List<Personnage> gerRerolls (Long idJoueur) {
@@ -114,8 +118,7 @@ public class PersonnageService {
             return;
         }
 
-        personnageRepository.deleteGroup1LinksByPersonnageId(id);
-        personnageRepository.deleteGroup2LinksByPersonnageId(id);
+        removeCharacterFromRaidGroups(id);
         joueurRepository.clearMainCharacterByPersonnageId(id);
         compositionRepository.deleteByPersonnageId(id);
         inscriptionRepository.deleteByPersonnageId(id);
@@ -143,14 +146,11 @@ public class PersonnageService {
             throw new IllegalArgumentException("La fusion doit concerner deux personnages du meme joueur.");
         }
 
-        personnageRepository.replaceGroup1Links(sourcePersonnageId, targetPersonnageId);
-        personnageRepository.replaceGroup2Links(sourcePersonnageId, targetPersonnageId);
+        replaceCharacterInRaidGroups(source, target);
         joueurRepository.replaceMainCharacter(sourcePersonnageId, targetPersonnageId);
         compositionRepository.replacePersonnageReferences(sourcePersonnageId, targetPersonnageId);
         inscriptionRepository.replacePersonnageReferences(sourcePersonnageId, targetPersonnageId);
 
-        personnageRepository.deleteGroup1LinksByPersonnageId(sourcePersonnageId);
-        personnageRepository.deleteGroup2LinksByPersonnageId(sourcePersonnageId);
         compositionRepository.deleteByPersonnageId(sourcePersonnageId);
         inscriptionRepository.deleteByPersonnageId(sourcePersonnageId);
 
@@ -170,6 +170,58 @@ public class PersonnageService {
 
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private void removeCharacterFromRaidGroups(Long personnageId) {
+        for (Raid raid : raidRepository.findAllWithGroups()) {
+            boolean changed = raid.getGroup1().removeIf(member -> member != null && personnageId.equals(member.getId()));
+            changed = raid.getGroup2().removeIf(member -> member != null && personnageId.equals(member.getId())) || changed;
+            if (changed) {
+                raidRepository.save(raid);
+            }
+        }
+    }
+
+    private void replaceCharacterInRaidGroups(Personnage source, Personnage target) {
+        Long sourcePersonnageId = source.getId();
+        Long targetPersonnageId = target.getId();
+
+        for (Raid raid : raidRepository.findAllWithGroups()) {
+            boolean group1ContainsSource = raid.getGroup1().stream()
+                    .anyMatch(member -> member != null && sourcePersonnageId.equals(member.getId()));
+            boolean group2ContainsSource = raid.getGroup2().stream()
+                    .anyMatch(member -> member != null && sourcePersonnageId.equals(member.getId()));
+
+            if (!group1ContainsSource && !group2ContainsSource) {
+                continue;
+            }
+
+            if (group1ContainsSource) {
+                List<Personnage> nextGroup1 = new ArrayList<>(raid.getGroup1());
+                nextGroup1.removeIf(member -> member != null && sourcePersonnageId.equals(member.getId()));
+                boolean targetAlreadyPresent = nextGroup1.stream()
+                        .anyMatch(member -> member != null && targetPersonnageId.equals(member.getId()));
+                if (!targetAlreadyPresent) {
+                    nextGroup1.add(target);
+                }
+                raid.getGroup1().clear();
+                raid.getGroup1().addAll(nextGroup1);
+            }
+
+            if (group2ContainsSource) {
+                List<Personnage> nextGroup2 = new ArrayList<>(raid.getGroup2());
+                nextGroup2.removeIf(member -> member != null && sourcePersonnageId.equals(member.getId()));
+                boolean targetAlreadyPresent = nextGroup2.stream()
+                        .anyMatch(member -> member != null && targetPersonnageId.equals(member.getId()));
+                if (!targetAlreadyPresent) {
+                    nextGroup2.add(target);
+                }
+                raid.getGroup2().clear();
+                raid.getGroup2().addAll(nextGroup2);
+            }
+
+            raidRepository.save(raid);
+        }
     }
 
 
