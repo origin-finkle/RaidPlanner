@@ -73,17 +73,39 @@ public class PersonnageService {
         personnageRepository.save(personnage);
     }
 
-    public void addPersonnage(Long id, PersonnageDTO personnageDTO) {
-        Joueur joueur = joueurRepository.findById(id).orElse(null);
+    @Transactional
+    public PersonnageDTO addPersonnage(Long id, PersonnageDTO personnageDTO) {
+        Joueur joueur = joueurRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Joueur introuvable"));
+
+        if (isBlank(personnageDTO.getNom())
+                || isBlank(personnageDTO.getClasse())
+                || isBlank(personnageDTO.getSpecialisation())
+                || isBlank(personnageDTO.getRole())) {
+            throw new IllegalArgumentException("Tous les champs du personnage sont obligatoires.");
+        }
+
+        boolean shouldBecomeMain = personnageDTO.isMain() || joueur.getMainCharacter() == null;
+        if (shouldBecomeMain) {
+            personnageRepository.findByJoueurId(id).forEach(existing -> existing.setMain(false));
+        }
+
         Personnage personnage = new Personnage();
-        personnage.setNom(personnageDTO.getNom());
-        personnage.setClasse(personnageDTO.getClasse());
-        personnage.setSpecialisation(personnageDTO.getSpecialisation());
-        personnage.setRole(personnageDTO.getRole());
-        personnage.setMain(personnageDTO.isMain());
+        personnage.setNom(personnageDTO.getNom().trim());
+        personnage.setClasse(personnageDTO.getClasse().trim());
+        personnage.setSpecialisation(personnageDTO.getSpecialisation().trim());
+        personnage.setRole(personnageDTO.getRole().trim());
+        personnage.setMain(shouldBecomeMain);
         personnage.setJoueur(joueur);
 
-        personnageRepository.save(personnage);
+        Personnage saved = personnageRepository.save(personnage);
+
+        if (shouldBecomeMain) {
+            joueur.setMainCharacter(saved);
+            joueurRepository.save(joueur);
+        }
+
+        return toDTO(saved);
     }
 
     @Transactional
@@ -144,6 +166,10 @@ public class PersonnageService {
         joueurRepository.save(source.getJoueur());
         personnageRepository.save(target);
         personnageRepository.deleteById(sourcePersonnageId);
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 
 

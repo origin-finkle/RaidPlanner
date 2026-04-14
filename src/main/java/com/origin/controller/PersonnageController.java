@@ -23,9 +23,8 @@ public class PersonnageController {
 
 
     @PostMapping("/{id}/personnages")
-    public ResponseEntity<Void> addPersonnage(@PathVariable Long id, @RequestBody PersonnageDTO dto) {
-        personnageService.addPersonnage(id, dto);
-        return ResponseEntity.ok().build();
+    public ResponseEntity<PersonnageDTO> addPersonnage(@PathVariable Long id, @RequestBody PersonnageDTO dto) {
+        return ResponseEntity.ok(personnageService.addPersonnage(id, dto));
     }
 
     @DeleteMapping("/{id}")
