@@ -601,7 +601,7 @@ public class RaidQueryService {
             return null;
         }
 
-        JoueurDTO joueurDTO = joueurService.toDTO(inscription.getPersonnage().getJoueur());
+        JoueurDTO joueurDTO = joueurService.toDTO(inscription.getPersonnage().getJoueur(), false);
         StatutParticipation statut = parseStatut(inscription.getStatut());
         return new JoueurDTO(
                 joueurDTO.getId(),
@@ -973,7 +973,7 @@ public class RaidQueryService {
         }
 
         StatutParticipation statut = pseudoToStatus.getOrDefault(cleaned, StatutParticipation.TITULAIRE);
-        JoueurDTO joueurDTO = joueurService.toDTO(joueur);
+        JoueurDTO joueurDTO = joueurService.toDTO(joueur, false);
 
         return Optional.of(new JoueurDTO(
                 joueurDTO.getId(),
