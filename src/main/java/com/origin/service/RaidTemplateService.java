@@ -1,7 +1,9 @@
 package com.origin.service;
 
 import com.origin.dto.RaidTemplateDTO;
+import com.origin.entity.Raid;
 import com.origin.entity.RaidTemplate;
+import com.origin.repository.RaidRepository;
 import com.origin.repository.RaidTemplateRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -14,6 +16,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class RaidTemplateService {
 
+    private final RaidRepository raidRepository;
     private final RaidTemplateRepository raidTemplateRepository;
 
     @Transactional(readOnly = true)
@@ -46,6 +49,11 @@ public class RaidTemplateService {
 
     @Transactional
     public void deleteTemplate(Long templateId) {
+        List<Raid> linkedRaids = raidRepository.findByTemplateIdOrderByDateAsc(templateId);
+        if (!linkedRaids.isEmpty()) {
+            linkedRaids.forEach(raid -> raid.setTemplate(null));
+            raidRepository.saveAll(linkedRaids);
+        }
         raidTemplateRepository.deleteById(templateId);
     }
 
