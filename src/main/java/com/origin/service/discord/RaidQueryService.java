@@ -202,6 +202,11 @@ public class RaidQueryService {
     }
 
     private int compareRaidPriority(Raid left, Raid right) {
+        int templateComparison = Boolean.compare(right.getTemplate() != null, left.getTemplate() != null);
+        if (templateComparison != 0) {
+            return templateComparison;
+        }
+
         int eventComparison = Boolean.compare(isCanonicalWeeklyRaidTitle(right.getNom()), isCanonicalWeeklyRaidTitle(left.getNom()));
         if (eventComparison != 0) {
             return eventComparison;

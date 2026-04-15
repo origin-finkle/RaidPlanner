@@ -45,28 +45,13 @@ public class RaidTemplateOccurrenceService {
         LocalDateTime dayStart = targetDateTime.toLocalDate().atStartOfDay();
         LocalDateTime dayEnd = dayStart.plusDays(1);
 
-        Raid raid = null;
-        if (template.getId() != null) {
-            raid = raidRepository.findFirstByTemplateIdAndDateGreaterThanEqualAndDateLessThanOrderByDateAsc(
-                    template.getId(),
-                    dayStart,
-                    dayEnd
-            ).orElse(null);
-        }
-
-        if (raid == null && template.getChannelId() != null && !template.getChannelId().isBlank()) {
-            raid = raidRepository.findByChannelIdAndDateGreaterThanEqualAndDateLessThanOrderByDateAsc(
-                            template.getChannelId(),
-                            dayStart,
-                            dayEnd
-                    ).stream()
-                    .min(Comparator.comparingLong(existing -> distanceToTargetTime(existing, targetDateTime.toLocalTime())))
-                    .orElse(null);
-        }
-
-        if (raid == null) {
-            raid = raidRepository.findByNomAndDate(template.getNom(), targetDateTime).orElse(null);
-        }
+        Raid raid = template.getId() == null
+                ? null
+                : raidRepository.findFirstByTemplateIdAndDateGreaterThanEqualAndDateLessThanOrderByDateAsc(
+                        template.getId(),
+                        dayStart,
+                        dayEnd
+                ).orElse(null);
 
         if (raid == null) {
             raid = Raid.builder()
@@ -223,11 +208,4 @@ public class RaidTemplateOccurrenceService {
         }
     }
 
-    private long distanceToTargetTime(Raid raid, LocalTime targetTime) {
-        if (raid == null || raid.getDate() == null || targetTime == null) {
-            return Long.MAX_VALUE;
-        }
-
-        return Math.abs(raid.getDate().toLocalTime().toSecondOfDay() - targetTime.toSecondOfDay());
-    }
 }
