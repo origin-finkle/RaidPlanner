@@ -237,6 +237,7 @@ public class RaidQueryService {
                 raid.getId(),
                 raid.getNom(),
                 raid.getDate(),
+                raid.getChannelId(),
                 joueurDTOList,
                 raid.getGroup1().stream().map(personnageService::toDTO).collect(Collectors.toList()),
                 raid.getGroup2().stream().map(personnageService::toDTO).collect(Collectors.toList()),

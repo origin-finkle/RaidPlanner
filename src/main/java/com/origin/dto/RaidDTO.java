@@ -13,6 +13,7 @@ public class RaidDTO {
     private Long id;
     private String nom;
     private LocalDateTime heure;
+    private String channelId;
     private List<JoueurDTO> joueurDTOList;
     private List<PersonnageDTO> group1;
     private List<PersonnageDTO> group2;
