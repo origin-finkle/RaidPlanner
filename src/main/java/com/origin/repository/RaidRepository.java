@@ -54,6 +54,14 @@ public interface RaidRepository extends JpaRepository<Raid, Long> {
             "LEFT JOIN FETCH r.group1 g1 " +
             "LEFT JOIN FETCH g1.joueur " +
             "LEFT JOIN FETCH r.group2 g2 " +
+            "LEFT JOIN FETCH g2.joueur " +
+            "WHERE r.id IN :ids")
+    List<Raid> findAllWithGroupsByIdIn(@Param("ids") List<Long> ids);
+
+    @Query("SELECT DISTINCT r FROM Raid r " +
+            "LEFT JOIN FETCH r.group1 g1 " +
+            "LEFT JOIN FETCH g1.joueur " +
+            "LEFT JOIN FETCH r.group2 g2 " +
             "LEFT JOIN FETCH g2.joueur")
     List<Raid> findAllWithGroups();
 }

@@ -25,6 +25,16 @@ public interface InscriptionRepository extends JpaRepository<Inscription, Long> 
             """)
     List<Inscription> findDetailedByRaidIdOrderByIdAsc(@Param("raidId") Long raidId);
 
+    @Query("""
+            SELECT i
+            FROM Inscription i
+            JOIN FETCH i.personnage p
+            JOIN FETCH p.joueur
+            WHERE i.raid.id IN :raidIds
+            ORDER BY i.raid.id ASC, i.id ASC
+            """)
+    List<Inscription> findDetailedByRaidIdInOrderByRaidIdAscIdAsc(@Param("raidIds") Collection<Long> raidIds);
+
     @Modifying
     @Transactional
     void deleteByRaidId(Long raidId);

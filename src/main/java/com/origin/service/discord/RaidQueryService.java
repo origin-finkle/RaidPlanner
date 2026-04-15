@@ -67,14 +67,20 @@ public class RaidQueryService {
     private final JoueurService joueurService;
 
     public List<RaidDayResponse> getRaidsGroupedByDay() {
+        LocalDateTime start = getCurrentResetWeekStart();
+        LocalDateTime endExclusive = start.plusDays(14);
+
         List<Raid> allRaids = deduplicateRaidsByDay(
-                raidRepository.findByDateGreaterThanEqualOrderByDateAsc(getCurrentResetWeekStart())
+                raidRepository.findByDateGreaterThanEqualAndDateLessThanOrderByDateAsc(start, endExclusive)
         );
+        Map<Long, List<JoueurDTO>> signupsByRaidId = loadPersistedSignupsByRaidId(allRaids);
+        Map<Long, Raid> raidsWithGroupsById = loadRaidsWithGroupsById(allRaids);
         List<RaidDTO> raidDTOList = new ArrayList<>();
 
         for (Raid raid : allRaids) {
-            List<JoueurDTO> joueurDTOList = getPersistedSignups(raid);
-            raidDTOList.add(toRaidDTO(raid, joueurDTOList));
+            Raid detailedRaid = raidsWithGroupsById.getOrDefault(raid.getId(), raid);
+            List<JoueurDTO> joueurDTOList = signupsByRaidId.getOrDefault(raid.getId(), List.of());
+            raidDTOList.add(toRaidDTO(detailedRaid, joueurDTOList));
         }
 
         Map<LocalDate, List<RaidDTO>> grouped = raidDTOList.stream()
@@ -182,6 +188,20 @@ public class RaidQueryService {
                 .sorted(Map.Entry.comparingByKey())
                 .map(Map.Entry::getValue)
                 .collect(Collectors.toList());
+    }
+
+    private Map<Long, Raid> loadRaidsWithGroupsById(List<Raid> raids) {
+        List<Long> raidIds = raids.stream()
+                .map(Raid::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
+        if (raidIds.isEmpty()) {
+            return Map.of();
+        }
+
+        return raidRepository.findAllWithGroupsByIdIn(raidIds).stream()
+                .collect(Collectors.toMap(Raid::getId, raid -> raid));
     }
 
     private int compareRaidPriority(Raid left, Raid right) {
@@ -438,6 +458,31 @@ public class RaidQueryService {
                 .map(this::toSignupDto)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
+    }
+
+    private Map<Long, List<JoueurDTO>> loadPersistedSignupsByRaidId(List<Raid> raids) {
+        List<Long> raidIds = raids.stream()
+                .map(Raid::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
+        if (raidIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<Long, List<JoueurDTO>> signupsByRaidId = new HashMap<>();
+        for (Inscription inscription : inscriptionRepository.findDetailedByRaidIdInOrderByRaidIdAscIdAsc(raidIds)) {
+            JoueurDTO signup = toSignupDto(inscription);
+            if (signup == null || inscription.getRaid() == null || inscription.getRaid().getId() == null) {
+                continue;
+            }
+
+            signupsByRaidId
+                    .computeIfAbsent(inscription.getRaid().getId(), ignored -> new ArrayList<>())
+                    .add(signup);
+        }
+
+        return signupsByRaidId;
     }
 
     private boolean isManualSignup(Inscription inscription) {
