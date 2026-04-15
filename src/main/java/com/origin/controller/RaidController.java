@@ -160,7 +160,11 @@ public class RaidController {
     }
 
     @PostMapping("/{id}/signup-flow/publish")
-    public ResponseEntity<String> publishCustomSignupFlowToRaidChannel(@PathVariable Long id) {
+    public ResponseEntity<String> publishCustomSignupFlowToRaidChannel(@PathVariable Long id,
+                                                                       @RequestParam(required = false) String channelId) {
+        if (channelId != null && !channelId.isBlank()) {
+            return ResponseEntity.ok(discordCustomSignupService.publishSignupMessageToChannel(id, channelId.trim()));
+        }
         return ResponseEntity.ok(discordCustomSignupService.publishSignupMessageToRaidChannel(id));
     }
 

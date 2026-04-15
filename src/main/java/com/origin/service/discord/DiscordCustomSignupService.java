@@ -82,7 +82,12 @@ public class DiscordCustomSignupService {
     @Transactional
     public String publishSignupMessageToRaidChannel(Long raidId) {
         Raid raid = loadRaid(raidId);
-        String targetChannelId = raid.getChannelId();
+        return publishSignupMessageToChannel(raidId, raid.getChannelId());
+    }
+
+    @Transactional
+    public String publishSignupMessageToChannel(Long raidId, String targetChannelId) {
+        Raid raid = loadRaid(raidId);
         TextChannel channel = Optional.ofNullable(jda.getTextChannelById(targetChannelId))
                 .orElseThrow(() -> new IllegalStateException("Salon de raid introuvable: " + targetChannelId));
 
