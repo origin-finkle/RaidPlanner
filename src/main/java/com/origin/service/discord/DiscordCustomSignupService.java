@@ -12,6 +12,7 @@ import com.origin.repository.RaidRepository;
 import lombok.Builder;
 import lombok.RequiredArgsConstructor;
 import lombok.Value;
+import lombok.extern.slf4j.Slf4j;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Message;
@@ -25,6 +26,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.text.Normalizer;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -37,6 +39,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class DiscordCustomSignupService {
@@ -74,6 +77,41 @@ public class DiscordCustomSignupService {
         });
 
         return "Prototype d'inscription maison publie ou mis a jour dans le salon de test " + TEST_CHANNEL_ID + ".";
+    }
+
+    @Transactional
+    public String publishSignupMessageToRaidChannel(Long raidId) {
+        Raid raid = loadRaid(raidId);
+        String targetChannelId = raid.getChannelId();
+        TextChannel channel = Optional.ofNullable(jda.getTextChannelById(targetChannelId))
+                .orElseThrow(() -> new IllegalStateException("Salon de raid introuvable: " + targetChannelId));
+
+        Message existingMessage = resolveExistingSignupMessage(raid, channel).orElse(null);
+        MessageEmbed embed = buildSignupEmbed(raid);
+        List<ActionRow> components = buildSignupActionRows(raidId);
+
+        Message publishedMessage;
+        boolean updated = false;
+
+        if (existingMessage != null) {
+            publishedMessage = existingMessage.editMessageEmbeds(embed)
+                    .setComponents(components)
+                    .complete();
+            updated = true;
+        } else {
+            publishedMessage = channel.sendMessageEmbeds(embed)
+                    .setComponents(components)
+                    .complete();
+        }
+
+        raid.setSignupChannelId(channel.getId());
+        raid.setSignupMessageId(publishedMessage.getIdLong());
+        raid.setLastSignupPublishedAt(LocalDateTime.now());
+        raidRepository.save(raid);
+
+        return updated
+                ? "Message d'inscription mis a jour pour " + raid.getNom() + " dans #" + channel.getName() + "."
+                : "Message d'inscription publie pour " + raid.getNom() + " dans #" + channel.getName() + ".";
     }
 
     public List<CharacterChoice> getCharacterChoices(Long raidId, String discordId) {
@@ -179,6 +217,56 @@ public class DiscordCustomSignupService {
                     .setComponents(buildSignupActionRows(raidId))
                     .queue();
         });
+    }
+
+    private Optional<Message> resolveExistingSignupMessage(Raid raid, TextChannel channel) {
+        if (raid.getSignupMessageId() != null && Objects.equals(raid.getSignupChannelId(), channel.getId())) {
+            try {
+                Message storedMessage = channel.retrieveMessageById(raid.getSignupMessageId()).complete();
+                if (isSignupMessageForRaid(storedMessage, raid)) {
+                    return Optional.of(storedMessage);
+                }
+            } catch (Exception exception) {
+                raid.setSignupMessageId(null);
+                raid.setSignupChannelId(null);
+                log.debug("Impossible de recharger le message signup {} pour le raid {}: {}",
+                        raid.getSignupMessageId(),
+                        raid.getId(),
+                        exception.getMessage());
+            }
+        }
+
+        try {
+            return channel.getHistory().retrievePast(30).complete().stream()
+                    .filter(message -> isSignupMessageForRaid(message, raid))
+                    .findFirst();
+        } catch (Exception exception) {
+            log.debug("Impossible d'inspecter l'historique du salon {} pour le raid {}: {}",
+                    channel.getId(),
+                    raid.getId(),
+                    exception.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    private boolean isSignupMessageForRaid(Message message, Raid raid) {
+        if (message == null || message.getEmbeds().isEmpty()) {
+            return false;
+        }
+
+        if (!Objects.equals(message.getAuthor().getId(), jda.getSelfUser().getId())) {
+            return false;
+        }
+
+        MessageEmbed embed = message.getEmbeds().get(0);
+        String expectedTitle = "Inscriptions Origin : " + raid.getNom();
+        if (!Objects.equals(embed.getTitle(), expectedTitle)) {
+            return false;
+        }
+
+        String expectedDate = formatRaidDate(raid);
+        return embed.getFields().stream()
+                .anyMatch(field -> "Quand".equals(field.getName()) && Objects.equals(field.getValue(), expectedDate));
     }
 
     private MessageEmbed buildSignupEmbed(Raid raid) {

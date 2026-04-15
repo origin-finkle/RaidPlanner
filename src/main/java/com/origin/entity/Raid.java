@@ -55,6 +55,15 @@ public class Raid {
     @Column(name = "published_channel_id")
     private String publishedChannelId;
 
+    @Column(name = "signup_message_id")
+    private Long signupMessageId;
+
+    @Column(name = "signup_channel_id")
+    private String signupChannelId;
+
+    @Column(name = "last_signup_published_at")
+    private LocalDateTime lastSignupPublishedAt;
+
     @Column(name = "last_missing_ping_source_message_id")
     private Long lastMissingPingSourceMessageId;
 

@@ -159,6 +159,11 @@ public class RaidController {
         return ResponseEntity.ok(discordCustomSignupService.publishTestSignupMessage(id));
     }
 
+    @PostMapping("/{id}/signup-flow/publish")
+    public ResponseEntity<String> publishCustomSignupFlowToRaidChannel(@PathVariable Long id) {
+        return ResponseEntity.ok(discordCustomSignupService.publishSignupMessageToRaidChannel(id));
+    }
+
     @PostMapping("/{id}/manual-signups")
     public ResponseEntity<Void> addManualSignup(@PathVariable Long id, @RequestBody ManualRaidSignupRequestDTO request) {
         raidService.addManualSignup(id, request.getPersonnageId());
