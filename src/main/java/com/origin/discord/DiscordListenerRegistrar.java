@@ -3,7 +3,6 @@ package com.origin.discord;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.dv8tion.jda.api.JDA;
-import com.origin.service.discord.RaidDiscordScannerService;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.stereotype.Component;
@@ -15,12 +14,10 @@ public class DiscordListenerRegistrar implements ApplicationListener<ContextRefr
 
     private final JDA jda;
     private final DiscordEventListener discordEventListener;
-    private final RaidDiscordScannerService raidDiscordScannerService;
 
     @Override
     public void onApplicationEvent(ContextRefreshedEvent event) {
         jda.addEventListener(discordEventListener);
-        int importedCount = raidDiscordScannerService.scanConfiguredRaidHelperChannels();
-        log.info("Import initial termine - {} raid(s) importe(s)", importedCount);
+        log.info("Discord listener enregistre sans scan initial des salons.");
     }
 }

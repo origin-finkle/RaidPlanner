@@ -19,7 +19,6 @@ import java.util.List;
 @RequiredArgsConstructor
 public class WeeklyMissingPingSchedulerService {
 
-    private final RaidDiscordScannerService raidDiscordScannerService;
     private final RaidQueryService raidQueryService;
     private final MissingRaidPingService missingRaidPingService;
 
@@ -37,15 +36,13 @@ public class WeeklyMissingPingSchedulerService {
         LocalDateTime start = nextResetWeekStart.atStartOfDay();
         LocalDateTime endExclusive = nextResetWeekStart.plusDays(7).atStartOfDay();
 
-        int importedCount = raidDiscordScannerService.scanConfiguredRaidHelperChannels();
         List<Raid> raids = raidQueryService.getBestRaidsInRange(start, endExclusive);
 
         log.info(
-                "Relance auto des non-inscrits - semaine suivante {} -> {} | raids={} | importsRecents={}",
+                "Relance auto des non-inscrits - semaine suivante {} -> {} | raids={}",
                 start.toLocalDate(),
                 endExclusive.minusDays(1).toLocalDate(),
-                raids.size(),
-                importedCount
+                raids.size()
         );
 
         for (Raid raid : raids) {

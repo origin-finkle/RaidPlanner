@@ -4,8 +4,6 @@ import com.origin.entity.Raid;
 import com.origin.service.RaidInscriptionService;
 import com.origin.service.RaidService;
 import com.origin.service.discord.DiscordCustomSignupService;
-import com.origin.service.discord.RaidDiscordScannerService;
-import com.origin.service.discord.RaidHelperParserService;
 import lombok.extern.slf4j.Slf4j;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Message;
@@ -14,8 +12,6 @@ import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
-import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
-import net.dv8tion.jda.api.events.message.MessageUpdateEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.callbacks.IReplyCallback;
 import net.dv8tion.jda.api.interactions.components.text.TextInput;
@@ -34,67 +30,19 @@ import java.util.stream.Stream;
 @Component
 public class DiscordEventListener extends ListenerAdapter {
 
-    private final RaidHelperParserService parserService;
-    private final RaidDiscordScannerService raidScannerService;
     private final RaidInscriptionService raidInscriptionService;
     private final RaidService raidService;
     private final DiscordCustomSignupService discordCustomSignupService;
     private final JDA jda;
 
-    public DiscordEventListener(RaidHelperParserService parserService,
-                                RaidDiscordScannerService raidScannerService,
-                                RaidInscriptionService raidInscriptionService,
+    public DiscordEventListener(RaidInscriptionService raidInscriptionService,
                                 RaidService raidService,
                                 DiscordCustomSignupService discordCustomSignupService,
                                 JDA jda) {
-        this.parserService = parserService;
-        this.raidScannerService = raidScannerService;
         this.raidInscriptionService = raidInscriptionService;
         this.raidService = raidService;
         this.discordCustomSignupService = discordCustomSignupService;
         this.jda = jda;
-    }
-
-    @Override
-    public void onMessageReceived(@NotNull MessageReceivedEvent event) {
-        if (!event.getAuthor().isBot()) {
-            return;
-        }
-
-        String botName = event.getAuthor().getName();
-        String channel = event.getChannel().getName();
-        String raw = event.getMessage().getContentRaw();
-
-        log.info("Message recu d'un bot: {}", botName);
-        log.info("Channel: #{}", channel);
-
-        if (!raw.isEmpty()) {
-            log.info("Message brut:\n{}", raw);
-        }
-
-        if (!event.getMessage().getEmbeds().isEmpty() && parserService.isRaidHelperEmbed(event.getMessage())) {
-            String channelId = event.getChannel().getId();
-            raidScannerService.scanAndImportRaids(List.of(channelId));
-        }
-    }
-
-    @Override
-    public void onMessageUpdate(@NotNull MessageUpdateEvent event) {
-        if (!event.getAuthor().isBot()) {
-            return;
-        }
-
-        List<MessageEmbed> embeds = event.getMessage().getEmbeds();
-        if (embeds.isEmpty()) {
-            return;
-        }
-
-        log.info("Message RAID HELPER modifie par: {}", event.getAuthor().getName());
-
-        if (parserService.isRaidHelperEmbed(event.getMessage())) {
-            String channelId = event.getChannel().getId();
-            raidScannerService.scanAndImportRaids(List.of(channelId));
-        }
     }
 
     @Override
