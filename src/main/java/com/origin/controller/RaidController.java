@@ -27,6 +27,7 @@ import com.origin.service.PlayerEquityService;
 import com.origin.service.PlanningHealthService;
 import com.origin.service.RaidConfirmationService;
 import com.origin.service.RaidService;
+import com.origin.service.RaidTemplateOccurrenceService;
 import com.origin.service.RaidTemplateService;
 import com.origin.service.discord.RaidDiscordScannerService;
 import com.origin.service.discord.MissingRaidPingService;
@@ -37,6 +38,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import com.origin.dto.RaidPublicationHistoryDTO;
@@ -58,6 +60,7 @@ public class RaidController {
     private final MissingRaidPingService missingRaidPingService;
     private final RaidDiscordScannerService raidDiscordScannerService;
     private final RaidTemplateService raidTemplateService;
+    private final RaidTemplateOccurrenceService raidTemplateOccurrenceService;
     private final DiscordCustomSignupService discordCustomSignupService;
     private final RaidImportSchedulerSettingsService raidImportSchedulerSettingsService;
 
@@ -220,10 +223,30 @@ public class RaidController {
         return ResponseEntity.ok(raidTemplateService.saveTemplate(dto));
     }
 
+    @PostMapping("/templates/{templateId}/signup-flow/test")
+    public ResponseEntity<String> publishTemplateSignupFlowToTestChannel(@PathVariable Long templateId,
+                                                                         @RequestParam(defaultValue = "0") int weekOffset) {
+        return ResponseEntity.ok(
+                raidTemplateOccurrenceService.publishTemplateToTestChannel(templateId, weekOffset, getSchedulerZoneId())
+        );
+    }
+
+    @PostMapping("/templates/{templateId}/signup-flow/publish")
+    public ResponseEntity<String> publishTemplateSignupFlowToRaidChannel(@PathVariable Long templateId,
+                                                                         @RequestParam(defaultValue = "0") int weekOffset) {
+        return ResponseEntity.ok(
+                raidTemplateOccurrenceService.publishTemplateToConfiguredChannel(templateId, weekOffset, getSchedulerZoneId())
+        );
+    }
+
     @DeleteMapping("/templates/{templateId}")
     public ResponseEntity<Void> deleteRaidTemplate(@PathVariable Long templateId) {
         raidTemplateService.deleteTemplate(templateId);
         return ResponseEntity.ok().build();
+    }
+
+    private ZoneId getSchedulerZoneId() {
+        return ZoneId.of(raidImportSchedulerSettingsService.getOrCreateSettings().getTimezone());
     }
 }
 

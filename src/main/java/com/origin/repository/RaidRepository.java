@@ -28,6 +28,14 @@ public interface RaidRepository extends JpaRepository<Raid, Long> {
 
     Optional<Raid> findByNomAndDate(String nom, LocalDateTime date);
 
+    Optional<Raid> findFirstByTemplateIdAndDateGreaterThanEqualAndDateLessThanOrderByDateAsc(Long templateId,
+                                                                                              LocalDateTime start,
+                                                                                              LocalDateTime end);
+
+    List<Raid> findByChannelIdAndDateGreaterThanEqualAndDateLessThanOrderByDateAsc(String channelId,
+                                                                                    LocalDateTime start,
+                                                                                    LocalDateTime end);
+
     List<Raid> findByDateGreaterThanEqualOrderByDateAsc(LocalDateTime start);
 
     List<Raid> findByDateGreaterThanEqualAndDateLessThanOrderByDateAsc(LocalDateTime start, LocalDateTime end);
