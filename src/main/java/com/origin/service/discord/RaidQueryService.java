@@ -73,7 +73,7 @@ public class RaidQueryService {
         List<RaidDTO> raidDTOList = new ArrayList<>();
 
         for (Raid raid : allRaids) {
-            List<JoueurDTO> joueurDTOList = getInscriptionsFromRaidHelper(raid);
+            List<JoueurDTO> joueurDTOList = getPersistedSignups(raid);
             raidDTOList.add(toRaidDTO(raid, joueurDTOList));
         }
 
@@ -143,23 +143,7 @@ public class RaidQueryService {
         Raid raid = raidRepository.findById(raidId)
                 .orElseThrow(() -> new IllegalArgumentException("Raid introuvable : " + raidId));
 
-        ResolvedSignupSource resolvedSource = resolveSignupSource(
-                raid.getChannelId(),
-                raid.getDiscordMessageId(),
-                raid.getNom(),
-                raid.getDate()
-        );
-
-        List<RaidSignupDiagnosticDTO> liveSignups = extractSignupsFromMessage(
-                        resolvedSource.channelId(),
-                        resolvedSource.messageId(),
-                        resolvedSource.message()
-                ).stream()
-                .map(this::toSignupDiagnosticDto)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
-
-        List<RaidSignupDiagnosticDTO> snapshotSignups = loadPersistedSignups(raid).stream()
+        List<RaidSignupDiagnosticDTO> snapshotSignups = getPersistedSignups(raid).stream()
                 .map(this::toSignupDiagnosticDto)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
@@ -173,14 +157,13 @@ public class RaidQueryService {
                 .storedRaidHelperId(raid.getRaidHelperId())
                 .publishedChannelId(raid.getPublishedChannelId())
                 .publishedMessageId(raid.getPublishedMessageId())
-                .storedMessage(toMessageDiagnostic(loadMessage(raid.getChannelId(), raid.getDiscordMessageId())))
-                .resolvedMessage(toMessageDiagnostic(resolvedSource.message()))
-                .sourceChanged(!Objects.equals(raid.getChannelId(), resolvedSource.channelId())
-                        || !Objects.equals(raid.getDiscordMessageId(), resolvedSource.messageId()))
-                .liveSignups(liveSignups)
+                .storedMessage(null)
+                .resolvedMessage(null)
+                .sourceChanged(false)
+                .liveSignups(snapshotSignups)
                 .snapshotSignups(snapshotSignups)
-                .liveOnlyPlayers(computeSignupDifference(liveSignups, snapshotSignups))
-                .snapshotOnlyPlayers(computeSignupDifference(snapshotSignups, liveSignups))
+                .liveOnlyPlayers(List.of())
+                .snapshotOnlyPlayers(List.of())
                 .build();
     }
 
@@ -261,41 +244,11 @@ public class RaidQueryService {
         if (raid == null) {
             return List.of();
         }
+        return getPersistedSignups(raid);
+    }
 
-        String originalChannelId = raid.getChannelId();
-        Long originalMessageId = raid.getDiscordMessageId();
-
-        ResolvedSignupSource resolvedSource = resolveSignupSource(
-                raid.getChannelId(),
-                raid.getDiscordMessageId(),
-                raid.getNom(),
-                raid.getDate()
-        );
-
-        boolean sourceChanged = !Objects.equals(originalChannelId, resolvedSource.channelId())
-                || !Objects.equals(originalMessageId, resolvedSource.messageId());
-
-        if (canWriteInCurrentTransaction()) {
-            persistResolvedSignupSource(raid, resolvedSource);
-        }
-        List<JoueurDTO> signups = extractSignupsFromMessage(raid.getChannelId(), raid.getDiscordMessageId(), resolvedSource.message());
-        if (!signups.isEmpty()) {
-            if (canWriteInCurrentTransaction()) {
-                persistSignupSnapshot(raid, signups);
-            }
-            return mergeWithManualSignups(raid, signups);
-        }
-
-        if (sourceChanged) {
-            log.warn("Source Discord mise a jour pour le raid {} mais aucun inscrit n'a pu etre extrait depuis le message {}. Snapshot precedent ignore.",
-                    raid.getId(),
-                    resolvedSource.messageId());
-            if (canWriteInCurrentTransaction()) {
-                inscriptionRepository.deleteByRaidId(raid.getId());
-            }
-            return List.of();
-        }
-
+    @Transactional(readOnly = true)
+    public List<JoueurDTO> getPersistedSignups(Raid raid) {
         return loadPersistedSignups(raid);
     }
 
