@@ -3,6 +3,7 @@ package com.origin.controller;
 import com.origin.dto.AutoComposeWeekRequestDTO;
 import com.origin.dto.AutoComposePreviewResultDTO;
 import com.origin.dto.BenchRecommendationDTO;
+import com.origin.dto.DiscordChannelOptionDTO;
 import com.origin.dto.ExportCompoRequestDto;
 import com.origin.dto.MissingRaidPingDTO;
 import com.origin.dto.ManualRaidSignupRequestDTO;
@@ -32,6 +33,7 @@ import com.origin.service.RaidTemplateService;
 import com.origin.service.discord.RaidDiscordScannerService;
 import com.origin.service.discord.MissingRaidPingService;
 import com.origin.service.discord.DiscordCustomSignupService;
+import com.origin.service.discord.DiscordChannelDirectoryService;
 import com.origin.service.discord.RaidImportSchedulerSettingsService;
 import com.origin.service.discord.RaidQueryService;
 import lombok.RequiredArgsConstructor;
@@ -62,6 +64,7 @@ public class RaidController {
     private final RaidTemplateService raidTemplateService;
     private final RaidTemplateOccurrenceService raidTemplateOccurrenceService;
     private final DiscordCustomSignupService discordCustomSignupService;
+    private final DiscordChannelDirectoryService discordChannelDirectoryService;
     private final RaidImportSchedulerSettingsService raidImportSchedulerSettingsService;
 
 
@@ -216,6 +219,11 @@ public class RaidController {
     @GetMapping("/templates")
     public ResponseEntity<List<RaidTemplateDTO>> getRaidTemplates() {
         return ResponseEntity.ok(raidTemplateService.getAllTemplates());
+    }
+
+    @GetMapping("/discord/channels")
+    public ResponseEntity<List<DiscordChannelOptionDTO>> getWritableDiscordChannels() {
+        return ResponseEntity.ok(discordChannelDirectoryService.getWritableTextChannels());
     }
 
     @PostMapping("/templates")
