@@ -80,6 +80,12 @@ public class RaidController {
         return ResponseEntity.ok(raidService.createManualRaid(request));
     }
 
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteRaid(@PathVariable Long id) {
+        raidService.deleteRaid(id);
+        return ResponseEntity.ok().build();
+    }
+
     @GetMapping("/{id}/diagnostic")
     public ResponseEntity<RaidDiagnosticDTO> getRaidDiagnostic(@PathVariable Long id) {
         return ResponseEntity.ok(raidQueryService.getRaidDiagnostic(id));

@@ -15,6 +15,10 @@ public interface CompositionRepository extends JpaRepository<Composition, Long> 
 
     @Modifying
     @Transactional
+    void deleteByRaidId(Long raidId);
+
+    @Modifying
+    @Transactional
     @Query("DELETE FROM Composition c WHERE c.personnage.id = :personnageId")
     void deleteByPersonnageId(@Param("personnageId") Long personnageId);
 

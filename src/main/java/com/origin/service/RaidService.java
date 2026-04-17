@@ -18,6 +18,7 @@ import com.origin.entity.Raid;
 import com.origin.entity.RaidInscription;
 import com.origin.entity.RaidPublicationHistory;
 import com.origin.enumOrigin.CompositionWorkflowStatus;
+import com.origin.repository.CompositionRepository;
 import com.origin.repository.PersonnageRepository;
 import com.origin.repository.InscriptionRepository;
 import com.origin.repository.RaidInscriptionRepository;
@@ -61,6 +62,7 @@ public class RaidService {
     private final JDA jda;
     private final RaidInscriptionRepository raidInscriptionRepository;
     private final RaidPublicationHistoryRepository raidPublicationHistoryRepository;
+    private final CompositionRepository compositionRepository;
 
     @Transactional
     public RaidDTO createManualRaid(CreateRaidRequestDTO request) {
@@ -188,6 +190,22 @@ public class RaidService {
         raidRepository.save(raid);
 
         inscriptionRepository.deleteByRaidIdAndJoueurId(raidId, joueurId);
+    }
+
+    @Transactional
+    public void deleteRaid(Long raidId) {
+        Raid raid = getRaidById(raidId);
+
+        raid.getGroup1().clear();
+        raid.getGroup2().clear();
+        raidRepository.save(raid);
+
+        compositionRepository.deleteByRaidId(raidId);
+        inscriptionRepository.deleteByRaidId(raidId);
+        raidInscriptionRepository.deleteByRaidId(raidId);
+        raidPublicationHistoryRepository.deleteByRaidId(raidId);
+
+        raidRepository.delete(raid);
     }
 
     public RaidCompositionStateDTO updateCompositionState(Long raidId, UpdateRaidCompositionStateRequestDTO request) {
