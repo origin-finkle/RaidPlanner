@@ -1,10 +1,13 @@
 package com.origin.service;
 
+import com.origin.dto.CreateRaidRequestDTO;
 import com.origin.dto.ExportCompoRequestDto;
+import com.origin.dto.JoueurDTO;
 import com.origin.dto.PersonnageDTO;
 import com.origin.dto.PersonnageCompositionDTO;
 import com.origin.dto.RaidCompositionStateDTO;
 import com.origin.dto.RaidCompositionDTO;
+import com.origin.dto.RaidDTO;
 import com.origin.dto.RaidPublicationComparisonDTO;
 import com.origin.dto.RaidPublicationHistoryDTO;
 import com.origin.dto.UpdateRaidCompositionStateRequestDTO;
@@ -34,6 +37,7 @@ import java.text.Normalizer;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -57,6 +61,50 @@ public class RaidService {
     private final JDA jda;
     private final RaidInscriptionRepository raidInscriptionRepository;
     private final RaidPublicationHistoryRepository raidPublicationHistoryRepository;
+
+    @Transactional
+    public RaidDTO createManualRaid(CreateRaidRequestDTO request) {
+        if (request == null) {
+            throw new IllegalArgumentException("La requete de creation est obligatoire.");
+        }
+        if (request.getNom() == null || request.getNom().isBlank()) {
+            throw new IllegalArgumentException("Le nom du raid est obligatoire.");
+        }
+        if (request.getDate() == null) {
+            throw new IllegalArgumentException("La date du raid est obligatoire.");
+        }
+        if (request.getChannelId() == null || request.getChannelId().isBlank()) {
+            throw new IllegalArgumentException("Le salon Discord est obligatoire.");
+        }
+
+        String channelId = request.getChannelId().trim();
+        TextChannel channel = jda.getTextChannelById(channelId);
+        if (channel == null) {
+            throw new IllegalArgumentException("Salon Discord introuvable : " + channelId);
+        }
+
+        Raid raid = Raid.builder()
+                .nom(request.getNom().trim())
+                .date(request.getDate())
+                .channelId(channelId)
+                .compositionStatus(CompositionWorkflowStatus.DRAFT)
+                .compositionLocked(false)
+                .build();
+
+        Raid savedRaid = raidRepository.save(raid);
+        return new RaidDTO(
+                savedRaid.getId(),
+                savedRaid.getNom(),
+                savedRaid.getDate(),
+                savedRaid.getChannelId(),
+                Collections.<JoueurDTO>emptyList(),
+                Collections.<PersonnageDTO>emptyList(),
+                Collections.<PersonnageDTO>emptyList(),
+                savedRaid.getCompositionStatus(),
+                savedRaid.isCompositionLocked(),
+                savedRaid.getLastPublishedAt()
+        );
+    }
 
     public void saveComposition(RaidCompositionDTO dto) {
         Raid raid = raidRepository.findById(dto.getRaidId())

@@ -70,9 +70,7 @@ public class RaidQueryService {
         LocalDateTime start = getCurrentResetWeekStart();
         LocalDateTime endExclusive = start.plusDays(14);
 
-        List<Raid> allRaids = deduplicateRaidsByDay(
-                raidRepository.findByDateGreaterThanEqualAndDateLessThanOrderByDateAsc(start, endExclusive)
-        );
+        List<Raid> allRaids = raidRepository.findByDateGreaterThanEqualAndDateLessThanOrderByDateAsc(start, endExclusive);
         Map<Long, List<JoueurDTO>> signupsByRaidId = loadPersistedSignupsByRaidId(allRaids);
         Map<Long, Raid> raidsWithGroupsById = loadRaidsWithGroupsById(allRaids);
         List<RaidDTO> raidDTOList = new ArrayList<>();
@@ -88,14 +86,17 @@ public class RaidQueryService {
 
         return grouped.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
-                .map(entry -> new RaidDayResponse(entry.getKey().toString(), entry.getValue()))
+                .map(entry -> new RaidDayResponse(
+                        entry.getKey().toString(),
+                        entry.getValue().stream()
+                                .sorted(Comparator.comparing(RaidDTO::getHeure))
+                                .collect(Collectors.toList())
+                ))
                 .collect(Collectors.toList());
     }
 
     public List<Raid> getBestRaidsInRange(LocalDateTime start, LocalDateTime endExclusive) {
-        return deduplicateRaidsByDay(
-                raidRepository.findByDateGreaterThanEqualAndDateLessThanOrderByDateAsc(start, endExclusive)
-        );
+        return raidRepository.findByDateGreaterThanEqualAndDateLessThanOrderByDateAsc(start, endExclusive);
     }
 
     private LocalDateTime getCurrentResetWeekStart() {
@@ -173,23 +174,6 @@ public class RaidQueryService {
                 .build();
     }
 
-    private List<Raid> deduplicateRaidsByDay(List<Raid> raids) {
-        Map<LocalDate, Raid> bestRaidByDay = new HashMap<>();
-
-        for (Raid raid : raids) {
-            LocalDate day = raid.getDate().toLocalDate();
-            Raid current = bestRaidByDay.get(day);
-            if (current == null || compareRaidPriority(raid, current) < 0) {
-                bestRaidByDay.put(day, raid);
-            }
-        }
-
-        return bestRaidByDay.entrySet().stream()
-                .sorted(Map.Entry.comparingByKey())
-                .map(Map.Entry::getValue)
-                .collect(Collectors.toList());
-    }
-
     private Map<Long, Raid> loadRaidsWithGroupsById(List<Raid> raids) {
         List<Long> raidIds = raids.stream()
                 .map(Raid::getId)
@@ -202,42 +186,6 @@ public class RaidQueryService {
 
         return raidRepository.findAllWithGroupsByIdIn(raidIds).stream()
                 .collect(Collectors.toMap(Raid::getId, raid -> raid));
-    }
-
-    private int compareRaidPriority(Raid left, Raid right) {
-        int templateComparison = Boolean.compare(right.getTemplate() != null, left.getTemplate() != null);
-        if (templateComparison != 0) {
-            return templateComparison;
-        }
-
-        int eventComparison = Boolean.compare(isCanonicalWeeklyRaidTitle(right.getNom()), isCanonicalWeeklyRaidTitle(left.getNom()));
-        if (eventComparison != 0) {
-            return eventComparison;
-        }
-
-        int messageComparison = compareNullableLongDesc(left.getDiscordMessageId(), right.getDiscordMessageId());
-        if (messageComparison != 0) {
-            return messageComparison;
-        }
-
-        return compareNullableLongDesc(left.getId(), right.getId());
-    }
-
-    private int compareNullableLongDesc(Long left, Long right) {
-        long safeLeft = left != null ? left : Long.MIN_VALUE;
-        long safeRight = right != null ? right : Long.MIN_VALUE;
-        return Long.compare(safeRight, safeLeft);
-    }
-
-    private boolean isCanonicalWeeklyRaidTitle(String nom) {
-        if (nom == null) {
-            return false;
-        }
-
-        String normalized = nom.strip().toLowerCase(Locale.ROOT);
-        return normalized.startsWith("raid du ")
-                || normalized.startsWith("raid de ")
-                || normalized.startsWith("raid d'");
     }
 
     private RaidDTO toRaidDTO(Raid raid, List<JoueurDTO> joueurDTOList) {

@@ -3,6 +3,7 @@ package com.origin.controller;
 import com.origin.dto.AutoComposeWeekRequestDTO;
 import com.origin.dto.AutoComposePreviewResultDTO;
 import com.origin.dto.BenchRecommendationDTO;
+import com.origin.dto.CreateRaidRequestDTO;
 import com.origin.dto.DiscordChannelOptionDTO;
 import com.origin.dto.ExportCompoRequestDto;
 import com.origin.dto.MissingRaidPingDTO;
@@ -15,6 +16,7 @@ import com.origin.dto.RaidConfirmationSummaryDTO;
 import com.origin.dto.RaidCompositionStateDTO;
 import com.origin.dto.RaidCompositionDTO;
 import com.origin.dto.RaidDayResponse;
+import com.origin.dto.RaidDTO;
 import com.origin.dto.RaidPublicationComparisonDTO;
 import com.origin.dto.RaidSchedulerStatusDTO;
 import com.origin.dto.AutoComposeWeekResultDTO;
@@ -71,6 +73,11 @@ public class RaidController {
     @GetMapping
     public List<RaidDayResponse> getAllRaids() {
         return raidQueryService.getRaidsGroupedByDay();
+    }
+
+    @PostMapping
+    public ResponseEntity<RaidDTO> createManualRaid(@RequestBody CreateRaidRequestDTO request) {
+        return ResponseEntity.ok(raidService.createManualRaid(request));
     }
 
     @GetMapping("/{id}/diagnostic")
