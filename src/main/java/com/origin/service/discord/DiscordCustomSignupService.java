@@ -17,6 +17,7 @@ import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.MessageEmbed;
+import net.dv8tion.jda.api.entities.Role;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.interactions.components.ActionRow;
 import net.dv8tion.jda.api.interactions.components.buttons.Button;
@@ -45,6 +46,7 @@ import java.util.stream.Collectors;
 public class DiscordCustomSignupService {
 
     public static final String TEST_CHANNEL_ID = "1355602641748496394";
+    private static final List<String> SIGNUP_PING_ROLE_NAMES = List.of("Apply", "Veterans", "Officiers");
     private static final int TENTATIVE_REASON_MAX_LENGTH = 120;
     private static final DateTimeFormatter RAID_DATE_FORMATTER = DateTimeFormatter.ofPattern("EEEE d MMMM 'a' HH:mm", Locale.FRANCE);
 
@@ -104,7 +106,9 @@ public class DiscordCustomSignupService {
                     .complete();
             updated = true;
         } else {
-            publishedMessage = channel.sendMessageEmbeds(embed)
+            String roleMentions = buildSignupRoleMentions(channel);
+            publishedMessage = channel.sendMessage(roleMentions)
+                    .addEmbeds(embed)
                     .setComponents(components)
                     .complete();
         }
@@ -525,6 +529,34 @@ public class DiscordCustomSignupService {
 
     private String canonicalEmojiKey(String classe, String specialisation) {
         return canonicalEmojiClass(classe) + "-" + canonicalEmojiSpec(specialisation);
+    }
+
+    private String buildSignupRoleMentions(TextChannel channel) {
+        List<String> mentionTokens = SIGNUP_PING_ROLE_NAMES.stream()
+                .map(roleName -> findRoleByName(channel, roleName))
+                .flatMap(Optional::stream)
+                .map(Role::getId)
+                .distinct()
+                .map(roleId -> "<@&" + roleId + ">")
+                .collect(Collectors.toList());
+
+        if (mentionTokens.isEmpty()) {
+            log.warn("Aucun role de ping trouve pour la publication signup dans le salon {}", channel.getId());
+            return "";
+        }
+
+        return String.join(" ", mentionTokens);
+    }
+
+    private Optional<Role> findRoleByName(TextChannel channel, String expectedRoleName) {
+        if (channel.getGuild() == null) {
+            return Optional.empty();
+        }
+
+        String normalizedExpectedRoleName = normalizeEmojiKey(expectedRoleName);
+        return channel.getGuild().getRoles().stream()
+                .filter(role -> normalizeEmojiKey(role.getName()).equals(normalizedExpectedRoleName))
+                .findFirst();
     }
 
     private String canonicalEmojiClass(String value) {
