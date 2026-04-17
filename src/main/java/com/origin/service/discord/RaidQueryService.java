@@ -272,6 +272,11 @@ public class RaidQueryService {
             return null;
         }
 
+        String slotFromName = canonicalSlotFromName(raid.getNom());
+        if (slotFromName != null) {
+            return slotFromName;
+        }
+
         if (raid.getTemplate() != null) {
             String slotFromTemplate = normalizeDayOfWeek(raid.getTemplate().getJourSemaine());
             if (slotFromTemplate != null) {
@@ -279,7 +284,7 @@ public class RaidQueryService {
             }
         }
 
-        return canonicalSlotFromName(raid.getNom());
+        return null;
     }
 
     private String canonicalSlotFromName(String value) {
