@@ -197,21 +197,22 @@ public class RaidQueryService {
     }
 
     private List<Raid> filterDisplayedRaids(List<Raid> raids) {
-        Map<String, Raid> canonicalTemplateRaids = new LinkedHashMap<>();
+        Map<String, Raid> canonicalWeeklyRaids = new LinkedHashMap<>();
         List<Raid> displayableRaids = new ArrayList<>();
 
         for (Raid raid : raids) {
-            if (raid.getTemplate() == null || raid.getTemplate().getId() == null || raid.getDate() == null) {
+            String canonicalSlot = resolveCanonicalWeeklySlot(raid);
+            if (canonicalSlot == null || raid.getDate() == null) {
                 displayableRaids.add(raid);
                 continue;
             }
 
             LocalDate weekStart = raid.getDate().toLocalDate().with(TemporalAdjusters.previousOrSame(DayOfWeek.WEDNESDAY));
-            String key = raid.getTemplate().getId() + ":" + weekStart;
-            canonicalTemplateRaids.merge(key, raid, this::pickDisplayCanonicalRaid);
+            String key = canonicalSlot + ":" + weekStart;
+            canonicalWeeklyRaids.merge(key, raid, this::pickDisplayCanonicalRaid);
         }
 
-        displayableRaids.addAll(canonicalTemplateRaids.values());
+        displayableRaids.addAll(canonicalWeeklyRaids.values());
         displayableRaids.sort(Comparator
                 .comparing(Raid::getDate)
                 .thenComparing(raid -> raid.getId() != null ? raid.getId() : Long.MAX_VALUE));
@@ -238,29 +239,83 @@ public class RaidQueryService {
     }
 
     private int displayAlignmentScore(Raid raid) {
-        if (raid.getTemplate() == null || raid.getDate() == null) {
+        if (raid.getDate() == null) {
             return 0;
         }
 
         int score = 0;
-        String templateName = raid.getTemplate().getNom();
-        if (templateName != null && templateName.equals(raid.getNom())) {
+        if (raid.getTemplate() != null) {
+            score += 6;
+        }
+
+        String canonicalSlot = resolveCanonicalWeeklySlot(raid);
+        if (canonicalSlot != null && canonicalSlot.equals(normalizeDayOfWeek(raid.getDate().getDayOfWeek().name()))) {
             score += 4;
         }
 
-        DayOfWeek expectedDay = normalizeDayOfWeek(raid.getTemplate().getJourSemaine());
-        if (expectedDay != null && raid.getDate().getDayOfWeek() == expectedDay) {
+        if (raid.getTemplate() != null && raid.getTemplate().getNom() != null && raid.getTemplate().getNom().equals(raid.getNom())) {
             score += 4;
         }
 
         if (raid.getSignupMessageId() != null) {
-            score += 1;
+            score += 3;
+        }
+        if (raid.getPublishedMessageId() != null) {
+            score += 2;
         }
 
         return score;
     }
 
-    private DayOfWeek normalizeDayOfWeek(String value) {
+    private String resolveCanonicalWeeklySlot(Raid raid) {
+        if (raid == null) {
+            return null;
+        }
+
+        if (raid.getTemplate() != null) {
+            String slotFromTemplate = normalizeDayOfWeek(raid.getTemplate().getJourSemaine());
+            if (slotFromTemplate != null) {
+                return slotFromTemplate;
+            }
+        }
+
+        return canonicalSlotFromName(raid.getNom());
+    }
+
+    private String canonicalSlotFromName(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+
+        String normalized = normalizeText(value);
+        if (normalized.startsWith("raid du ") || normalized.startsWith("raid de ") || normalized.startsWith("raid d ")) {
+            if (normalized.contains(" mercredi")) {
+                return "WEDNESDAY";
+            }
+            if (normalized.contains(" jeudi")) {
+                return "THURSDAY";
+            }
+            if (normalized.contains(" dimanche")) {
+                return "SUNDAY";
+            }
+            if (normalized.contains(" lundi")) {
+                return "MONDAY";
+            }
+            if (normalized.contains(" mardi")) {
+                return "TUESDAY";
+            }
+            if (normalized.contains(" vendredi")) {
+                return "FRIDAY";
+            }
+            if (normalized.contains(" samedi")) {
+                return "SATURDAY";
+            }
+        }
+
+        return null;
+    }
+
+    private String normalizeDayOfWeek(String value) {
         if (value == null || value.isBlank()) {
             return null;
         }
@@ -269,28 +324,37 @@ public class RaidQueryService {
         switch (normalized) {
             case "MONDAY":
             case "LUNDI":
-                return DayOfWeek.MONDAY;
+                return "MONDAY";
             case "TUESDAY":
             case "MARDI":
-                return DayOfWeek.TUESDAY;
+                return "TUESDAY";
             case "WEDNESDAY":
             case "MERCREDI":
-                return DayOfWeek.WEDNESDAY;
+                return "WEDNESDAY";
             case "THURSDAY":
             case "JEUDI":
-                return DayOfWeek.THURSDAY;
+                return "THURSDAY";
             case "FRIDAY":
             case "VENDREDI":
-                return DayOfWeek.FRIDAY;
+                return "FRIDAY";
             case "SATURDAY":
             case "SAMEDI":
-                return DayOfWeek.SATURDAY;
+                return "SATURDAY";
             case "SUNDAY":
             case "DIMANCHE":
-                return DayOfWeek.SUNDAY;
+                return "SUNDAY";
             default:
                 return null;
         }
+    }
+
+    private String normalizeText(String value) {
+        return java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "")
+                .toLowerCase(Locale.ROOT)
+                .replace('\'', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
     }
 
     private RaidDTO toRaidDTO(Raid raid, List<JoueurDTO> joueurDTOList) {
