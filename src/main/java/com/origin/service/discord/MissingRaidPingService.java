@@ -103,7 +103,9 @@ public class MissingRaidPingService {
         Raid raid = raidRepository.findById(raidId)
                 .orElseThrow(() -> new IllegalArgumentException("Raid introuvable : " + raidId));
 
-        if (raid.getDiscordMessageId() == null) {
+        Long sourceMessageId = resolveReminderSourceMessageId(raid);
+        String targetChannelId = resolveReminderChannelId(raid);
+        if (sourceMessageId == null || targetChannelId == null) {
             return new MissingRaidPingDTO(
                     "Impossible d'envoyer un rappel: aucun message d'inscription n'est encore publie pour " + raid.getNom() + ".",
                     0,
@@ -116,13 +118,13 @@ public class MissingRaidPingService {
             return dto;
         }
 
-        TextChannel channel = jda.getTextChannelById(raid.getChannelId());
+        TextChannel channel = jda.getTextChannelById(targetChannelId);
         if (channel == null) {
-            throw new IllegalStateException("Salon du raid introuvable : " + raid.getChannelId());
+            throw new IllegalStateException("Salon du raid introuvable : " + targetChannelId);
         }
 
         channel.sendMessage(dto.getMessage()).complete();
-        raid.setLastMissingPingSourceMessageId(raid.getDiscordMessageId());
+        raid.setLastMissingPingSourceMessageId(sourceMessageId);
         raid.setLastMissingPingAt(LocalDateTime.now());
         raidRepository.save(raid);
 
@@ -137,16 +139,18 @@ public class MissingRaidPingService {
         Raid raid = raidRepository.findById(raidId)
                 .orElseThrow(() -> new IllegalArgumentException("Raid introuvable : " + raidId));
 
-        if (raid.getDiscordMessageId() == null) {
+        Long sourceMessageId = resolveReminderSourceMessageId(raid);
+        String targetChannelId = resolveReminderChannelId(raid);
+        if (sourceMessageId == null || targetChannelId == null) {
             log.info("Relance ignoree pour le raid {}: aucun message Discord source", raid.getId());
             return false;
         }
 
-        if (raid.getDiscordMessageId().equals(raid.getLastMissingPingSourceMessageId())) {
+        if (sourceMessageId.equals(raid.getLastMissingPingSourceMessageId())) {
             log.info(
                     "Relance deja envoyee pour le raid {} sur le message source {}",
                     raid.getId(),
-                    raid.getDiscordMessageId()
+                    sourceMessageId
             );
             return false;
         }
@@ -157,20 +161,20 @@ public class MissingRaidPingService {
             return false;
         }
 
-        TextChannel channel = jda.getTextChannelById(raid.getChannelId());
+        TextChannel channel = jda.getTextChannelById(targetChannelId);
         if (channel == null) {
-            throw new IllegalStateException("Salon du raid introuvable : " + raid.getChannelId());
+            throw new IllegalStateException("Salon du raid introuvable : " + targetChannelId);
         }
 
         channel.sendMessage(dto.getMessage()).complete();
-        raid.setLastMissingPingSourceMessageId(raid.getDiscordMessageId());
+        raid.setLastMissingPingSourceMessageId(sourceMessageId);
         raid.setLastMissingPingAt(LocalDateTime.now());
         raidRepository.save(raid);
 
         log.info(
                 "Relance auto envoyee pour le raid {} dans le salon {} ({} joueur(s) manquant(s))",
                 raid.getId(),
-                raid.getChannelId(),
+                targetChannelId,
                 dto.getMissingCount()
         );
         return true;
@@ -178,20 +182,22 @@ public class MissingRaidPingService {
 
     private Set<Long> extractAbsencePlayerIds(Raid raid) {
         Set<Long> ids = new LinkedHashSet<>();
-        if (raid.getDiscordMessageId() == null) {
+        Long sourceMessageId = resolveReminderSourceMessageId(raid);
+        String sourceChannelId = resolveReminderChannelId(raid);
+        if (sourceMessageId == null || sourceChannelId == null) {
             return ids;
         }
 
-        TextChannel channel = jda.getTextChannelById(raid.getChannelId());
+        TextChannel channel = jda.getTextChannelById(sourceChannelId);
         if (channel == null) {
             return ids;
         }
 
         Message message;
         try {
-            message = channel.retrieveMessageById(raid.getDiscordMessageId()).complete();
+            message = channel.retrieveMessageById(sourceMessageId).complete();
         } catch (Exception exception) {
-            log.warn("Impossible de recuperer le message Discord source {} pour le raid {}", raid.getDiscordMessageId(), raid.getId());
+            log.warn("Impossible de recuperer le message Discord source {} pour le raid {}", sourceMessageId, raid.getId());
             return ids;
         }
 
@@ -225,6 +231,20 @@ public class MissingRaidPingService {
         }
 
         return ids;
+    }
+
+    private Long resolveReminderSourceMessageId(Raid raid) {
+        if (raid.getSignupMessageId() != null) {
+            return raid.getSignupMessageId();
+        }
+        return raid.getDiscordMessageId();
+    }
+
+    private String resolveReminderChannelId(Raid raid) {
+        if (raid.getSignupChannelId() != null && !raid.getSignupChannelId().isBlank()) {
+            return raid.getSignupChannelId();
+        }
+        return raid.getChannelId();
     }
 
     private String preferredDisplayName(Joueur joueur) {
