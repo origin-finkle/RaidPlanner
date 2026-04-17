@@ -7,14 +7,16 @@ import lombok.extern.slf4j.Slf4j;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
-import javax.annotation.PostConstruct;
 import java.text.Normalizer;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 @Service
@@ -27,27 +29,45 @@ public class DiscordMemberSyncService {
     private final JDA jda;
     private final JoueurRepository joueurRepository;
     private final DiscordMemberCleanupService discordMemberCleanupService;
+    private final AtomicBoolean syncInProgress = new AtomicBoolean(false);
 
-    @PostConstruct
+    @Value("${discord.guild.id}")
+    private String guildId;
+
+    @Scheduled(
+            initialDelayString = "${discord.member-sync.initial-delay-ms:30000}",
+            fixedDelayString = "${discord.member-sync.fixed-delay-ms:600000}"
+    )
     public void syncMembersWithRole() {
-        String guildId = "670711708628811805";
+        if (!syncInProgress.compareAndSet(false, true)) {
+            log.info("Synchro membres Discord ignoree: une synchro est deja en cours.");
+            return;
+        }
 
         Guild guild = jda.getGuildById(guildId);
         if (guild == null) {
             log.warn("Guild non trouvee");
+            syncInProgress.set(false);
             return;
         }
 
         guild.loadMembers().onSuccess(members -> {
-            log.info("Scanning {} membres dans le serveur {}", members.size(), guild.getName());
+            try {
+                log.info("Scanning {} membres dans le serveur {}", members.size(), guild.getName());
 
-            List<Member> allowedMembers = members.stream()
-                    .filter(member -> hasRoleFromList(member, ALLOWED_ROLE_NAMES))
-                    .collect(Collectors.toList());
+                List<Member> allowedMembers = members.stream()
+                        .filter(member -> hasRoleFromList(member, ALLOWED_ROLE_NAMES))
+                        .collect(Collectors.toList());
 
-            allowedMembers.forEach(this::enregistrerJoueur);
-            supprimerJoueursNonAutorises(allowedMembers);
-        }).onError(error -> log.error("Erreur pendant la synchro des membres Discord", error));
+                allowedMembers.forEach(this::enregistrerJoueur);
+                supprimerJoueursNonAutorises(allowedMembers);
+            } finally {
+                syncInProgress.set(false);
+            }
+        }).onError(error -> {
+            log.error("Erreur pendant la synchro des membres Discord", error);
+            syncInProgress.set(false);
+        });
     }
 
     private void enregistrerJoueur(Member member) {
