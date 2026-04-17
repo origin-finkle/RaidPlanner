@@ -99,6 +99,40 @@ public class MissingRaidPingService {
         );
     }
 
+    public MissingRaidPingDTO sendMissingPingToRaidChannel(Long raidId) {
+        Raid raid = raidRepository.findById(raidId)
+                .orElseThrow(() -> new IllegalArgumentException("Raid introuvable : " + raidId));
+
+        if (raid.getDiscordMessageId() == null) {
+            return new MissingRaidPingDTO(
+                    "Impossible d'envoyer un rappel: aucun message d'inscription n'est encore publie pour " + raid.getNom() + ".",
+                    0,
+                    List.of()
+            );
+        }
+
+        MissingRaidPingDTO dto = buildMissingPing(raid.getId());
+        if (dto.getMissingCount() <= 0) {
+            return dto;
+        }
+
+        TextChannel channel = jda.getTextChannelById(raid.getChannelId());
+        if (channel == null) {
+            throw new IllegalStateException("Salon du raid introuvable : " + raid.getChannelId());
+        }
+
+        channel.sendMessage(dto.getMessage()).complete();
+        raid.setLastMissingPingSourceMessageId(raid.getDiscordMessageId());
+        raid.setLastMissingPingAt(LocalDateTime.now());
+        raidRepository.save(raid);
+
+        return new MissingRaidPingDTO(
+                "Rappel envoye dans le salon du raid. " + dto.getMessage(),
+                dto.getMissingCount(),
+                dto.getMissingPlayers()
+        );
+    }
+
     public boolean sendMissingPingToRaidChannelIfNeeded(Long raidId) {
         Raid raid = raidRepository.findById(raidId)
                 .orElseThrow(() -> new IllegalArgumentException("Raid introuvable : " + raidId));

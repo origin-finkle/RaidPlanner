@@ -173,6 +173,11 @@ public class RaidController {
         return ResponseEntity.ok(missingRaidPingService.sendMissingPingToTestChannel(id));
     }
 
+    @PostMapping("/{id}/missing-ping/publish")
+    public ResponseEntity<MissingRaidPingDTO> sendMissingPingToRaidChannel(@PathVariable Long id) {
+        return ResponseEntity.ok(missingRaidPingService.sendMissingPingToRaidChannel(id));
+    }
+
     @PostMapping("/{id}/signup-flow/test")
     public ResponseEntity<String> publishCustomSignupFlowToTestChannel(@PathVariable Long id) {
         return ResponseEntity.ok(discordCustomSignupService.publishTestSignupMessage(id));
