@@ -42,16 +42,20 @@ public class RaidTemplateOccurrenceService {
     @Transactional
     public Raid ensureRaidOccurrence(RaidTemplate template, LocalDate weekStart) {
         LocalDateTime targetDateTime = resolveTargetDateTime(template, weekStart);
-        LocalDateTime dayStart = targetDateTime.toLocalDate().atStartOfDay();
-        LocalDateTime dayEnd = dayStart.plusDays(1);
+        LocalDateTime weekStartDateTime = weekStart.atStartOfDay();
+        LocalDateTime weekEndDateTime = weekStart.plusDays(7).atStartOfDay();
 
         Raid raid = template.getId() == null
                 ? null
-                : raidRepository.findFirstByTemplateIdAndDateGreaterThanEqualAndDateLessThanOrderByDateAsc(
-                        template.getId(),
-                        dayStart,
-                        dayEnd
-                ).orElse(null);
+                : chooseCanonicalOccurrence(
+                        raidRepository.findByTemplateIdAndDateGreaterThanEqualAndDateLessThanOrderByDateAsc(
+                                template.getId(),
+                                weekStartDateTime,
+                                weekEndDateTime
+                        ),
+                        targetDateTime,
+                        template
+                );
 
         if (raid == null) {
             raid = Raid.builder()
@@ -89,6 +93,21 @@ public class RaidTemplateOccurrenceService {
         }
 
         return raid;
+    }
+
+    @Transactional
+    public void ensureOccurrencesForPublicationWindow(LocalDate firstWeekStart, int weekCount) {
+        if (weekCount <= 0) {
+            return;
+        }
+
+        List<RaidTemplate> templates = raidTemplateRepository.findAll();
+        for (int weekIndex = 0; weekIndex < weekCount; weekIndex++) {
+            LocalDate weekStart = firstWeekStart.plusWeeks(weekIndex);
+            for (RaidTemplate template : templates) {
+                ensureRaidOccurrence(template, weekStart);
+            }
+        }
     }
 
     @Transactional
@@ -147,6 +166,35 @@ public class RaidTemplateOccurrenceService {
         LocalDate targetDate = weekStart.plusDays(dayOffset(dayOfWeek));
         LocalTime targetTime = parseTemplateTime(template.getHeure());
         return LocalDateTime.of(targetDate, targetTime);
+    }
+
+    private Raid chooseCanonicalOccurrence(List<Raid> candidateRaids, LocalDateTime targetDateTime, RaidTemplate template) {
+        return candidateRaids.stream()
+                .min(Comparator
+                        .comparingInt((Raid raid) -> templateAlignmentScore(raid, targetDateTime, template))
+                        .reversed()
+                        .thenComparing(Raid::getDate)
+                        .thenComparing(raid -> raid.getId() != null ? raid.getId() : Long.MAX_VALUE))
+                .orElse(null);
+    }
+
+    private int templateAlignmentScore(Raid raid, LocalDateTime targetDateTime, RaidTemplate template) {
+        int score = 0;
+
+        if (targetDateTime.equals(raid.getDate())) {
+            score += 8;
+        }
+        if (template.getNom() != null && template.getNom().equals(raid.getNom())) {
+            score += 4;
+        }
+        if (template.getChannelId() != null && template.getChannelId().equals(raid.getChannelId())) {
+            score += 2;
+        }
+        if (raid.getSignupMessageId() != null) {
+            score += 1;
+        }
+
+        return score;
     }
 
     private DayOfWeek normalizeDayOfWeek(String value) {

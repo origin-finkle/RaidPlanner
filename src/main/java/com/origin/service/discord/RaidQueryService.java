@@ -17,6 +17,7 @@ import com.origin.repository.PersonnageRepository;
 import com.origin.repository.RaidRepository;
 import com.origin.service.JoueurService;
 import com.origin.service.PersonnageService;
+import com.origin.service.RaidTemplateOccurrenceService;
 import com.origin.util.ParsedEmoji;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -65,12 +66,16 @@ public class RaidQueryService {
     private final PersonnageService personnageService;
     private final RaidHelperParserService parserService;
     private final JoueurService joueurService;
+    private final RaidTemplateOccurrenceService raidTemplateOccurrenceService;
 
     public List<RaidDayResponse> getRaidsGroupedByDay() {
         LocalDateTime start = getCurrentResetWeekStart();
         LocalDateTime endExclusive = start.plusDays(14);
+        raidTemplateOccurrenceService.ensureOccurrencesForPublicationWindow(start.toLocalDate(), 2);
 
-        List<Raid> allRaids = raidRepository.findByDateGreaterThanEqualAndDateLessThanOrderByDateAsc(start, endExclusive);
+        List<Raid> allRaids = filterDisplayedRaids(
+                raidRepository.findByDateGreaterThanEqualAndDateLessThanOrderByDateAsc(start, endExclusive)
+        );
         Map<Long, List<JoueurDTO>> signupsByRaidId = loadPersistedSignupsByRaidId(allRaids);
         Map<Long, Raid> raidsWithGroupsById = loadRaidsWithGroupsById(allRaids);
         List<RaidDTO> raidDTOList = new ArrayList<>();
@@ -96,7 +101,10 @@ public class RaidQueryService {
     }
 
     public List<Raid> getBestRaidsInRange(LocalDateTime start, LocalDateTime endExclusive) {
-        return raidRepository.findByDateGreaterThanEqualAndDateLessThanOrderByDateAsc(start, endExclusive);
+        raidTemplateOccurrenceService.ensureOccurrencesForPublicationWindow(start.toLocalDate(), 2);
+        return filterDisplayedRaids(
+                raidRepository.findByDateGreaterThanEqualAndDateLessThanOrderByDateAsc(start, endExclusive)
+        );
     }
 
     private LocalDateTime getCurrentResetWeekStart() {
@@ -186,6 +194,103 @@ public class RaidQueryService {
 
         return raidRepository.findAllWithGroupsByIdIn(raidIds).stream()
                 .collect(Collectors.toMap(Raid::getId, raid -> raid));
+    }
+
+    private List<Raid> filterDisplayedRaids(List<Raid> raids) {
+        Map<String, Raid> canonicalTemplateRaids = new LinkedHashMap<>();
+        List<Raid> displayableRaids = new ArrayList<>();
+
+        for (Raid raid : raids) {
+            if (raid.getTemplate() == null || raid.getTemplate().getId() == null || raid.getDate() == null) {
+                displayableRaids.add(raid);
+                continue;
+            }
+
+            LocalDate weekStart = raid.getDate().toLocalDate().with(TemporalAdjusters.previousOrSame(DayOfWeek.WEDNESDAY));
+            String key = raid.getTemplate().getId() + ":" + weekStart;
+            canonicalTemplateRaids.merge(key, raid, this::pickDisplayCanonicalRaid);
+        }
+
+        displayableRaids.addAll(canonicalTemplateRaids.values());
+        displayableRaids.sort(Comparator
+                .comparing(Raid::getDate)
+                .thenComparing(raid -> raid.getId() != null ? raid.getId() : Long.MAX_VALUE));
+        return displayableRaids;
+    }
+
+    private Raid pickDisplayCanonicalRaid(Raid left, Raid right) {
+        int leftScore = displayAlignmentScore(left);
+        int rightScore = displayAlignmentScore(right);
+        if (leftScore != rightScore) {
+            return rightScore > leftScore ? right : left;
+        }
+
+        LocalDateTime leftDate = left.getDate() != null ? left.getDate() : LocalDateTime.MAX;
+        LocalDateTime rightDate = right.getDate() != null ? right.getDate() : LocalDateTime.MAX;
+        int dateComparison = leftDate.compareTo(rightDate);
+        if (dateComparison != 0) {
+            return dateComparison <= 0 ? left : right;
+        }
+
+        long leftId = left.getId() != null ? left.getId() : Long.MAX_VALUE;
+        long rightId = right.getId() != null ? right.getId() : Long.MAX_VALUE;
+        return leftId <= rightId ? left : right;
+    }
+
+    private int displayAlignmentScore(Raid raid) {
+        if (raid.getTemplate() == null || raid.getDate() == null) {
+            return 0;
+        }
+
+        int score = 0;
+        String templateName = raid.getTemplate().getNom();
+        if (templateName != null && templateName.equals(raid.getNom())) {
+            score += 4;
+        }
+
+        DayOfWeek expectedDay = normalizeDayOfWeek(raid.getTemplate().getJourSemaine());
+        if (expectedDay != null && raid.getDate().getDayOfWeek() == expectedDay) {
+            score += 4;
+        }
+
+        if (raid.getSignupMessageId() != null) {
+            score += 1;
+        }
+
+        return score;
+    }
+
+    private DayOfWeek normalizeDayOfWeek(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        switch (normalized) {
+            case "MONDAY":
+            case "LUNDI":
+                return DayOfWeek.MONDAY;
+            case "TUESDAY":
+            case "MARDI":
+                return DayOfWeek.TUESDAY;
+            case "WEDNESDAY":
+            case "MERCREDI":
+                return DayOfWeek.WEDNESDAY;
+            case "THURSDAY":
+            case "JEUDI":
+                return DayOfWeek.THURSDAY;
+            case "FRIDAY":
+            case "VENDREDI":
+                return DayOfWeek.FRIDAY;
+            case "SATURDAY":
+            case "SAMEDI":
+                return DayOfWeek.SATURDAY;
+            case "SUNDAY":
+            case "DIMANCHE":
+                return DayOfWeek.SUNDAY;
+            default:
+                return null;
+        }
     }
 
     private RaidDTO toRaidDTO(Raid raid, List<JoueurDTO> joueurDTOList) {
