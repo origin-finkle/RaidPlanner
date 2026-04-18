@@ -217,6 +217,45 @@ public class DiscordEventListener extends ListenerAdapter {
             return;
         }
 
+        if ("absence".equalsIgnoreCase(statusKey) || "bench".equalsIgnoreCase(statusKey)) {
+            DiscordCustomSignupService.CharacterChoice preferredChoice =
+                    discordCustomSignupService.getPreferredCharacterChoice(raidId, event.getUser().getId());
+
+            String message = discordCustomSignupService.registerSignup(
+                    raidId,
+                    event.getUser().getId(),
+                    preferredChoice.getPersonnageId(),
+                    statusKey
+            );
+
+            replyEphemeralAndDelete(event, message);
+            discordCustomSignupService.refreshSignupMessage(event.getChannel().getId(), event.getMessageIdLong(), raidId);
+            return;
+        }
+
+        if ("tentative".equalsIgnoreCase(statusKey)) {
+            DiscordCustomSignupService.CharacterChoice preferredChoice =
+                    discordCustomSignupService.getPreferredCharacterChoice(raidId, event.getUser().getId());
+
+            TextInput reasonInput = TextInput.create("reason", "Raison de la tentative", TextInputStyle.PARAGRAPH)
+                    .setPlaceholder("Ex: peut-etre en retard, disponible sous reserve, reroll si besoin...")
+                    .setMinLength(3)
+                    .setMaxLength(120)
+                    .setRequired(true)
+                    .build();
+
+            event.replyModal(Modal.create(
+                            discordCustomSignupService.buildTentativeReasonModalId(
+                                    raidId,
+                                    event.getMessageIdLong(),
+                                    preferredChoice.getPersonnageId()
+                            ),
+                            "Motif de la tentative")
+                    .addActionRow(reasonInput)
+                    .build()).queue();
+            return;
+        }
+
         List<DiscordCustomSignupService.CharacterChoice> choices = discordCustomSignupService.getCharacterChoices(
                 raidId,
                 event.getUser().getId()

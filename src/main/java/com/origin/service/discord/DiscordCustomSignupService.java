@@ -149,6 +149,12 @@ public class DiscordCustomSignupService {
                 .collect(Collectors.toList());
     }
 
+    public CharacterChoice getPreferredCharacterChoice(Long raidId, String discordId) {
+        return getCharacterChoices(raidId, discordId).stream()
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("Aucun personnage configure pour ce compte Discord."));
+    }
+
     public StringSelectMenu buildCharacterSelectMenu(String statusKey,
                                                      Long raidId,
                                                      long sourceMessageId,
