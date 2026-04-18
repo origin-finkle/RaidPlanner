@@ -39,6 +39,7 @@ import com.origin.service.discord.DiscordChannelDirectoryService;
 import com.origin.service.discord.RaidImportSchedulerSettingsService;
 import com.origin.service.discord.RaidQueryService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -50,6 +51,7 @@ import com.origin.dto.RaidPublicationHistoryDTO;
 @RestController
 @RequestMapping("/api/raids")
 @RequiredArgsConstructor
+@Slf4j
 public class RaidController {
 
     private final RaidQueryService raidQueryService;
@@ -77,7 +79,17 @@ public class RaidController {
 
     @PostMapping
     public ResponseEntity<RaidDTO> createManualRaid(@RequestBody CreateRaidRequestDTO request) {
-        return ResponseEntity.ok(raidService.createManualRaid(request));
+        RaidDTO createdRaid = raidService.createManualRaid(request);
+
+        try {
+            discordCustomSignupService.publishSignupMessageToChannel(createdRaid.getId(), createdRaid.getChannelId());
+        } catch (Exception exception) {
+            log.warn("Raid {} cree mais publication de l'inscription impossible: {}",
+                    createdRaid.getId(),
+                    exception.getMessage());
+        }
+
+        return ResponseEntity.ok(createdRaid);
     }
 
     @DeleteMapping("/{id}")
