@@ -32,13 +32,16 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Slf4j
 @Service
@@ -192,7 +195,7 @@ public class DiscordCustomSignupService {
         }
 
         SignupStatus status = SignupStatus.fromKey(statusKey);
-        inscriptionRepository.deleteByRaidIdAndJoueurId(raidId, joueur.getId());
+        purgeConflictingRaidSignups(raidId, joueur);
         inscriptionRepository.save(Inscription.builder()
                 .raid(raid)
                 .personnage(personnage)
@@ -210,8 +213,83 @@ public class DiscordCustomSignupService {
         Joueur joueur = joueurRepository.findByDiscordId(discordId)
                 .orElseThrow(() -> new IllegalArgumentException("Joueur Discord introuvable."));
 
-        inscriptionRepository.deleteByRaidIdAndJoueurId(raid.getId(), joueur.getId());
+        purgeConflictingRaidSignups(raid.getId(), joueur);
         return "Ton inscription a ete retiree pour " + raid.getNom() + ".";
+    }
+
+    private void purgeConflictingRaidSignups(Long raidId, Joueur joueur) {
+        List<Inscription> existingSignups = inscriptionRepository.findDetailedByRaidIdOrderByIdAsc(raidId);
+        if (existingSignups.isEmpty()) {
+            return;
+        }
+
+        Set<String> rosterCharacterNames = personnageRepository.findByJoueurId(joueur.getId()).stream()
+                .map(Personnage::getNom)
+                .map(this::normalizeIdentityKey)
+                .filter(value -> value != null && !value.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        Set<String> playerIdentityKeys = new LinkedHashSet<>();
+        addIdentityKey(playerIdentityKeys, joueur.getDiscordId());
+        addIdentityKey(playerIdentityKeys, joueur.getServerPseudo());
+        addIdentityKey(playerIdentityKeys, joueur.getPseudoIhm());
+        addIdentityKey(playerIdentityKeys, joueur.getPseudo());
+
+        List<Long> inscriptionIdsToDelete = existingSignups.stream()
+                .filter(inscription -> belongsToSameSignupCluster(inscription, joueur, playerIdentityKeys, rosterCharacterNames))
+                .map(Inscription::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
+        if (!inscriptionIdsToDelete.isEmpty()) {
+            inscriptionRepository.deleteByIdIn(inscriptionIdsToDelete);
+        }
+    }
+
+    private boolean belongsToSameSignupCluster(Inscription inscription,
+                                               Joueur joueur,
+                                               Set<String> playerIdentityKeys,
+                                               Set<String> rosterCharacterNames) {
+        if (inscription == null || inscription.getPersonnage() == null || inscription.getPersonnage().getJoueur() == null) {
+            return false;
+        }
+
+        Joueur owner = inscription.getPersonnage().getJoueur();
+        if (Objects.equals(owner.getId(), joueur.getId())) {
+            return true;
+        }
+
+        if (joueur.getDiscordId() != null && !joueur.getDiscordId().isBlank() && Objects.equals(owner.getDiscordId(), joueur.getDiscordId())) {
+            return true;
+        }
+
+        String normalizedCharacterName = normalizeIdentityKey(inscription.getPersonnage().getNom());
+        if (normalizedCharacterName != null && rosterCharacterNames.contains(normalizedCharacterName)) {
+            return true;
+        }
+
+        return Stream.of(owner.getServerPseudo(), owner.getPseudoIhm(), owner.getPseudo(), owner.getDiscordId())
+                .map(this::normalizeIdentityKey)
+                .filter(value -> value != null && !value.isBlank())
+                .anyMatch(playerIdentityKeys::contains);
+    }
+
+    private void addIdentityKey(Set<String> keys, String value) {
+        String normalized = normalizeIdentityKey(value);
+        if (normalized != null && !normalized.isBlank()) {
+            keys.add(normalized);
+        }
+    }
+
+    private String normalizeIdentityKey(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        return Normalizer.normalize(value, Normalizer.Form.NFD)
+                .replaceAll("\\p{InCombiningDiacriticalMarks}+", "")
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9]", "");
     }
 
     public MessageEmbed buildSignupEmbed(Long raidId) {

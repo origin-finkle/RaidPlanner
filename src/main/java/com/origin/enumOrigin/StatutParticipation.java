@@ -4,5 +4,6 @@ public enum StatutParticipation {
     TITULAIRE,
     TENTATIVE,
     BENCH,
+    ABSENCE,
     LATE
 }

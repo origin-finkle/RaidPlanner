@@ -68,6 +68,7 @@ public class JoueurService {
 
         return new JoueurDTO(
                 joueur.getId(),
+                joueur.getDiscordId(),
                 joueur.getPseudo(),
                 joueur.getPseudoIhm(),
                 joueur.getServerPseudo(),

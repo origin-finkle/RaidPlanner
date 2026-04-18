@@ -620,7 +620,10 @@ public class RaidQueryService {
             if (key == null) {
                 continue;
             }
-            latestByPlayer.put(key, signup);
+            JoueurDTO current = latestByPlayer.get(key);
+            if (current == null || compareSignupPriority(signup, current) < 0) {
+                latestByPlayer.put(key, signup);
+            }
         }
 
         return new ArrayList<>(latestByPlayer.values());
@@ -629,6 +632,10 @@ public class RaidQueryService {
     private String signupDedupKey(JoueurDTO signup) {
         if (signup == null) {
             return null;
+        }
+        String discordId = cleanServerPseudo(signup.getDiscordId());
+        if (discordId != null && !discordId.isBlank()) {
+            return "discord:" + discordId;
         }
         String serverPseudo = cleanServerPseudo(signup.getServerPseudo());
         if (serverPseudo != null && !serverPseudo.isBlank()) {
@@ -645,6 +652,38 @@ public class RaidQueryService {
         }
 
         return null;
+    }
+
+    private int compareSignupPriority(JoueurDTO left, JoueurDTO right) {
+        int leftScore = signupPriority(left);
+        int rightScore = signupPriority(right);
+        if (leftScore != rightScore) {
+            return rightScore - leftScore;
+        }
+
+        long leftId = left.getId() != null ? left.getId() : Long.MAX_VALUE;
+        long rightId = right.getId() != null ? right.getId() : Long.MAX_VALUE;
+        return Long.compare(leftId, rightId);
+    }
+
+    private int signupPriority(JoueurDTO joueur) {
+        if (joueur == null || joueur.getStatutParticipation() == null) {
+            return 1;
+        }
+
+        switch (joueur.getStatutParticipation()) {
+            case ABSENCE:
+                return 5;
+            case BENCH:
+                return 4;
+            case LATE:
+                return 3;
+            case TENTATIVE:
+                return 2;
+            case TITULAIRE:
+            default:
+                return 1;
+        }
     }
 
     private boolean isManualSignup(Inscription inscription) {
@@ -771,6 +810,7 @@ public class RaidQueryService {
         StatutParticipation statut = parseStatut(inscription.getStatut());
         return new JoueurDTO(
                 joueurDTO.getId(),
+                joueurDTO.getDiscordId(),
                 joueurDTO.getPseudo(),
                 joueurDTO.getPseudoIhm(),
                 joueurDTO.getServerPseudo(),
@@ -1143,6 +1183,7 @@ public class RaidQueryService {
 
         return Optional.of(new JoueurDTO(
                 joueurDTO.getId(),
+                joueurDTO.getDiscordId(),
                 joueurDTO.getPseudo(),
                 joueurDTO.getPseudoIhm(),
                 joueurDTO.getServerPseudo(),
@@ -1289,6 +1330,7 @@ public class RaidQueryService {
 
         return new JoueurDTO(
                 joueur.getId(),
+                joueur.getDiscordId(),
                 joueur.getPseudo(),
                 joueur.getPseudoIhm(),
                 joueur.getServerPseudo(),

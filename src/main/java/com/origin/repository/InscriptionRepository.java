@@ -57,6 +57,11 @@ public interface InscriptionRepository extends JpaRepository<Inscription, Long> 
 
     @Modifying
     @Transactional
+    @Query("DELETE FROM Inscription i WHERE i.id IN :ids")
+    void deleteByIdIn(@Param("ids") Collection<Long> ids);
+
+    @Modifying
+    @Transactional
     @Query(value = """
             UPDATE inscriptions i
             SET i.personnage_id = :targetPersonnageId

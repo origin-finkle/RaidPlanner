@@ -10,6 +10,7 @@ import java.util.List;
 @AllArgsConstructor
 public class JoueurDTO {
     private Long id;
+    private String discordId;
     private String pseudo;
     private String pseudoIhm;
     private String serverPseudo;
