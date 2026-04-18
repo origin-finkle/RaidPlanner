@@ -630,10 +630,6 @@ public class RaidQueryService {
         if (signup == null) {
             return null;
         }
-        if (signup.getId() != null) {
-            return "id:" + signup.getId();
-        }
-
         String serverPseudo = cleanServerPseudo(signup.getServerPseudo());
         if (serverPseudo != null && !serverPseudo.isBlank()) {
             return "server:" + serverPseudo;
@@ -642,6 +638,10 @@ public class RaidQueryService {
         String pseudo = cleanServerPseudo(signup.getPseudo());
         if (pseudo != null && !pseudo.isBlank()) {
             return "pseudo:" + pseudo;
+        }
+
+        if (signup.getId() != null) {
+            return "id:" + signup.getId();
         }
 
         return null;
