@@ -272,6 +272,10 @@ public class RaidQueryService {
             return null;
         }
 
+        if (raid.getTemplate() == null) {
+            return null;
+        }
+
         String slotFromName = canonicalSlotFromName(raid.getNom());
         if (slotFromName != null) {
             return slotFromName;
