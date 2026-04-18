@@ -580,10 +580,10 @@ public class RaidQueryService {
             return List.of();
         }
 
-        return inscriptionRepository.findDetailedByRaidIdOrderByIdAsc(raid.getId()).stream()
+        return deduplicateSignupsByPlayer(inscriptionRepository.findDetailedByRaidIdOrderByIdAsc(raid.getId()).stream()
                 .map(this::toSignupDto)
                 .filter(Objects::nonNull)
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
     }
 
     private Map<Long, List<JoueurDTO>> loadPersistedSignupsByRaidId(List<Raid> raids) {
@@ -608,7 +608,43 @@ public class RaidQueryService {
                     .add(signup);
         }
 
+        signupsByRaidId.replaceAll((raidId, signups) -> deduplicateSignupsByPlayer(signups));
         return signupsByRaidId;
+    }
+
+    private List<JoueurDTO> deduplicateSignupsByPlayer(List<JoueurDTO> signups) {
+        Map<String, JoueurDTO> latestByPlayer = new LinkedHashMap<>();
+
+        for (JoueurDTO signup : signups) {
+            String key = signupDedupKey(signup);
+            if (key == null) {
+                continue;
+            }
+            latestByPlayer.put(key, signup);
+        }
+
+        return new ArrayList<>(latestByPlayer.values());
+    }
+
+    private String signupDedupKey(JoueurDTO signup) {
+        if (signup == null) {
+            return null;
+        }
+        if (signup.getId() != null) {
+            return "id:" + signup.getId();
+        }
+
+        String serverPseudo = cleanServerPseudo(signup.getServerPseudo());
+        if (serverPseudo != null && !serverPseudo.isBlank()) {
+            return "server:" + serverPseudo;
+        }
+
+        String pseudo = cleanServerPseudo(signup.getPseudo());
+        if (pseudo != null && !pseudo.isBlank()) {
+            return "pseudo:" + pseudo;
+        }
+
+        return null;
     }
 
     private boolean isManualSignup(Inscription inscription) {
