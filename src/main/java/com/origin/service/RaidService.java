@@ -11,6 +11,7 @@ import com.origin.dto.RaidDTO;
 import com.origin.dto.RaidPublicationComparisonDTO;
 import com.origin.dto.RaidPublicationHistoryDTO;
 import com.origin.dto.UpdateRaidCompositionStateRequestDTO;
+import com.origin.dto.UpdateRaidRequestDTO;
 import com.origin.entity.Joueur;
 import com.origin.entity.Inscription;
 import com.origin.entity.Personnage;
@@ -206,6 +207,37 @@ public class RaidService {
         raidPublicationHistoryRepository.deleteByRaidId(raidId);
 
         raidRepository.delete(raid);
+    }
+
+    @Transactional
+    public RaidDTO updateRaid(Long raidId, UpdateRaidRequestDTO request) {
+        if (request == null) {
+            throw new IllegalArgumentException("La requete de mise a jour est obligatoire.");
+        }
+
+        Raid raid = getRaidById(raidId);
+
+        if (request.getNom() != null) {
+            String trimmedName = request.getNom().trim();
+            if (trimmedName.isBlank()) {
+                throw new IllegalArgumentException("Le nom du raid ne peut pas etre vide.");
+            }
+            raid.setNom(trimmedName);
+        }
+
+        Raid savedRaid = raidRepository.save(raid);
+        return new RaidDTO(
+                savedRaid.getId(),
+                savedRaid.getNom(),
+                savedRaid.getDate(),
+                savedRaid.getChannelId(),
+                Collections.<JoueurDTO>emptyList(),
+                Collections.<PersonnageDTO>emptyList(),
+                Collections.<PersonnageDTO>emptyList(),
+                savedRaid.getCompositionStatus(),
+                savedRaid.isCompositionLocked(),
+                savedRaid.getLastPublishedAt()
+        );
     }
 
     public RaidCompositionStateDTO updateCompositionState(Long raidId, UpdateRaidCompositionStateRequestDTO request) {

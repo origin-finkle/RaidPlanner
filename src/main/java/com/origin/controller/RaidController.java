@@ -22,6 +22,7 @@ import com.origin.dto.RaidSchedulerStatusDTO;
 import com.origin.dto.AutoComposeWeekResultDTO;
 import com.origin.dto.RaidTemplateDTO;
 import com.origin.dto.UpdateRaidCompositionStateRequestDTO;
+import com.origin.dto.UpdateRaidRequestDTO;
 import com.origin.service.AutoComposeService;
 import com.origin.service.AutoComposeSettingsService;
 import com.origin.service.BenchManagerService;
@@ -96,6 +97,11 @@ public class RaidController {
     public ResponseEntity<Void> deleteRaid(@PathVariable Long id) {
         raidService.deleteRaid(id);
         return ResponseEntity.ok().build();
+    }
+
+    @PatchMapping("/{id}")
+    public ResponseEntity<RaidDTO> updateRaid(@PathVariable Long id, @RequestBody UpdateRaidRequestDTO request) {
+        return ResponseEntity.ok(raidService.updateRaid(id, request));
     }
 
     @GetMapping("/{id}/diagnostic")
