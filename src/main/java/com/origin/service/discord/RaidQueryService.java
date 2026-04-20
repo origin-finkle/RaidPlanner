@@ -201,6 +201,18 @@ public class RaidQueryService {
         List<Raid> displayableRaids = new ArrayList<>();
 
         for (Raid raid : raids) {
+            if (raid.getTemplate() != null && !isAlignedTemplateOccurrence(raid)) {
+                log.warn(
+                        "Occurrence template ignoree car incoherente: raidId={} nom={} date={} templateId={} jourTemplate={}",
+                        raid.getId(),
+                        raid.getNom(),
+                        raid.getDate(),
+                        raid.getTemplate().getId(),
+                        raid.getTemplate().getJourSemaine()
+                );
+                continue;
+            }
+
             String canonicalSlot = resolveCanonicalWeeklySlot(raid);
             if (canonicalSlot == null || raid.getDate() == null) {
                 displayableRaids.add(raid);
@@ -217,6 +229,16 @@ public class RaidQueryService {
                 .comparing(Raid::getDate)
                 .thenComparing(raid -> raid.getId() != null ? raid.getId() : Long.MAX_VALUE));
         return displayableRaids;
+    }
+
+    private boolean isAlignedTemplateOccurrence(Raid raid) {
+        if (raid == null || raid.getTemplate() == null || raid.getDate() == null) {
+            return true;
+        }
+
+        String expectedSlot = normalizeDayOfWeek(raid.getTemplate().getJourSemaine());
+        String actualSlot = normalizeDayOfWeek(raid.getDate().getDayOfWeek().name());
+        return expectedSlot == null || actualSlot == null || expectedSlot.equals(actualSlot);
     }
 
     private Raid pickDisplayCanonicalRaid(Raid left, Raid right) {
