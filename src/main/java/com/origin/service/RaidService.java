@@ -92,6 +92,7 @@ public class RaidService {
                 .channelId(channelId)
                 .compositionStatus(CompositionWorkflowStatus.DRAFT)
                 .compositionLocked(false)
+                .ignoreWeeklyConflicts(Boolean.TRUE.equals(request.getIgnoreWeeklyConflicts()))
                 .build();
 
         Raid savedRaid = raidRepository.save(raid);
@@ -105,7 +106,8 @@ public class RaidService {
                 Collections.<PersonnageDTO>emptyList(),
                 savedRaid.getCompositionStatus(),
                 savedRaid.isCompositionLocked(),
-                savedRaid.getLastPublishedAt()
+                savedRaid.getLastPublishedAt(),
+                savedRaid.isIgnoreWeeklyConflicts()
         );
     }
 
@@ -224,6 +226,9 @@ public class RaidService {
             }
             raid.setNom(trimmedName);
         }
+        if (request.getIgnoreWeeklyConflicts() != null) {
+            raid.setIgnoreWeeklyConflicts(request.getIgnoreWeeklyConflicts());
+        }
 
         Raid savedRaid = raidRepository.save(raid);
         return new RaidDTO(
@@ -236,7 +241,8 @@ public class RaidService {
                 Collections.<PersonnageDTO>emptyList(),
                 savedRaid.getCompositionStatus(),
                 savedRaid.isCompositionLocked(),
-                savedRaid.getLastPublishedAt()
+                savedRaid.getLastPublishedAt(),
+                savedRaid.isIgnoreWeeklyConflicts()
         );
     }
 

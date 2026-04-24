@@ -9,4 +9,5 @@ public class CreateRaidRequestDTO {
     private String nom;
     private LocalDateTime date;
     private String channelId;
+    private Boolean ignoreWeeklyConflicts;
 }

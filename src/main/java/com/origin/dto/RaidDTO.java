@@ -20,4 +20,5 @@ public class RaidDTO {
     private CompositionWorkflowStatus compositionStatus;
     private boolean compositionLocked;
     private LocalDateTime lastPublishedAt;
+    private boolean ignoreWeeklyConflicts;
 }

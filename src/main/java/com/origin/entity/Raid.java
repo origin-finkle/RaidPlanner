@@ -88,6 +88,10 @@ public class Raid {
     @Column(name = "last_published_group2_snapshot", length = 255)
     private String lastPublishedGroup2Snapshot;
 
+    @Column(name = "ignore_weekly_conflicts")
+    @Builder.Default
+    private Boolean ignoreWeeklyConflicts = false;
+
     @OneToMany(fetch = FetchType.LAZY)
     @JoinColumn(name = "group1_id")
     @Builder.Default
@@ -100,6 +104,10 @@ public class Raid {
 
     public boolean isCompositionLocked() {
         return Boolean.TRUE.equals(compositionLocked);
+    }
+
+    public boolean isIgnoreWeeklyConflicts() {
+        return Boolean.TRUE.equals(ignoreWeeklyConflicts);
     }
 }
 

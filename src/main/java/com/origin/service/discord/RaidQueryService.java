@@ -399,7 +399,8 @@ public class RaidQueryService {
                 raid.getGroup2().stream().map(personnageService::toDTO).collect(Collectors.toList()),
                 raid.getCompositionStatus(),
                 raid.isCompositionLocked(),
-                raid.getLastPublishedAt()
+                raid.getLastPublishedAt(),
+                raid.isIgnoreWeeklyConflicts()
         );
     }
 
