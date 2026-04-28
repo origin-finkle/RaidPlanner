@@ -1,0 +1,4 @@
+[submodule "raid-planner-ui"]
+	path = raid-planner-ui
+	url = https://github.com/origin-finkle/RaidPlannerUi.git
+	branch = master

@@ -175,15 +175,15 @@ Useful operational scripts:
 
 ## Git Workflow Note
 
-The project currently uses two Git repositories:
+The project is organized with:
 
-- the root repository for backend, infrastructure, deployment scripts, and the frontend pointer
-- a separate frontend repository in [`raid-planner-ui/`](./raid-planner-ui)
+- a root repository for backend, infrastructure, deployment scripts, and documentation
+- a dedicated frontend repository mounted as a Git submodule in [`raid-planner-ui/`](./raid-planner-ui)
 
 When a change affects the frontend:
 
 1. commit and push inside `raid-planner-ui`
-2. commit and push the root repository to update the frontend pointer
+2. commit and push the root repository to update the submodule pointer
 
 ## Current Direction
 
