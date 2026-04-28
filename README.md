@@ -1,136 +1,148 @@
-# RaidPlanner
+# Origin Raid Planner
 
-RaidPlanner est un outil de pilotage de roster pour World of Warcraft.
+Origin Raid Planner is a full-stack raid planning application built for World of Warcraft guild officers. It centralizes roster management, raid signups, composition building, Discord publication, and weekly operational follow-up in a single workflow-oriented tool.
 
-Le projet couvre tout le flux officier :
-- import automatique des raids Discord / Raid-Helper
-- gestion des personnages, mains et rerolls
-- composition manuelle avec drag-and-drop
-- auto-compose hebdo
-- publication Discord et mise a jour des compos
-- rappels des non-inscrits
-- dashboard officier, diagnostics et sante du planning
-- authentification Discord reservee aux officiers
+The project is designed around real officer constraints: balancing multiple raids across a week, handling mains and rerolls, publishing actionable information to Discord, and reducing spreadsheet-driven coordination.
 
-## Vue d'ensemble
+## Product Overview
 
-Le projet est compose de deux parties :
-- un backend Spring Boot a la racine du repo
-- un frontend Angular dans `raid-planner-ui/`
+Origin Raid Planner covers the full lifecycle of raid preparation:
 
-Important :
-- `raid-planner-ui/` est un depot Git imbrique avec son propre remote
-- si tu modifies le front, il faut commit/push le front puis mettre a jour le pointeur Git du repo racine
+- Discord OAuth login restricted to guild officers
+- guild member synchronization from Discord
+- roster management with mains, rerolls, classes, specs, and roles
+- weekly raid templates and ad hoc manual raids
+- visual drag-and-drop composition building
+- weekly auto-compose rules and officer validation tools
+- Discord signup messages with interactive status updates
+- reminders for missing signups
+- publication of final compositions back to Discord
+- confirmation tracking, bench management, and fairness monitoring
 
-## Fonctionnalites principales
+## Why This Project Is Strong Portfolio Material
 
-### Officiers
+This is not a generic CRUD dashboard. It is a production-oriented product with non-trivial business logic and external system integration.
 
-- vue semaine `mercredi -> mardi`
-- composition des groupes de raid
-- verrouillage et statut de compo
-- comparaison avec la derniere publication
-- previsualisation et generation auto-compose
-- bench manager
-- suivi des confirmations
-- dashboard global et alertes
-- diagnostics de source Discord
-- scheduler d'import configurable depuis l'admin
-- templates de raid
-- historique des publications
+It demonstrates:
 
-### Membres
+- end-to-end product design for a real user group
+- Spring Boot API design around domain-heavy workflows
+- Angular UI built for operational decision-making
+- Discord bot and OAuth integration
+- scheduling, reminders, and automated weekly publishing
+- Docker-based deployment and maintenance scripts
 
-- confirmations sur les compos publiees par le bot
-- prototype d'inscriptions Discord maison sur salon de test
+## Architecture
 
-## Stack technique
+The project is split into two applications:
+
+- **Backend**: Spring Boot API at the repository root
+- **Frontend**: Angular application in [`raid-planner-ui/`](./raid-planner-ui)
+
+### Backend responsibilities
+
+- authentication and access control
+- roster and raid domain logic
+- weekly template generation
+- reminder and publication workflows
+- Discord API integration via JDA
+- persistence, migrations, and operational endpoints
+
+### Frontend responsibilities
+
+- officer dashboard and weekly planning views
+- composition building and validation workflows
+- template administration
+- publication and reminder tooling
+- compact comparison views for cross-raid decision making
+
+## Technical Stack
 
 ### Backend
 
 - Java 15
-- Spring Boot 2.4.12
+- Spring Boot 2.4
 - Spring Web
 - Spring Data JPA
 - MySQL 8
-- JDA 5 beta
 - Flyway
+- JDA (Discord API)
 
 ### Frontend
 
 - Angular 19
 - TypeScript
 - SCSS
+- Angular CDK
 - SortableJS
 
-## Arborescence utile
+### Infrastructure
 
-- `src/main/java/com/origin/` : code backend
-- `src/main/resources/application.properties` : config locale
-- `src/main/resources/application-prod.properties` : config prod
-- `src/main/resources/db/migration/` : migrations Flyway
-- `raid-planner-ui/src/` : code frontend
-- `docker-compose.prod.yml` : stack de deploiement
-- `scripts/backup-db.sh` : backup MySQL
-- `scripts/restore-db.sh` : restauration MySQL
+- Docker
+- Docker Compose
+- Nginx
+- VPS deployment scripts
+- MySQL backup and restore scripts
 
-## Demarrage local
+## Key Workflows
 
-### Prerequis
+### Officer workflow
 
-- Java 15+ installe
-- Maven installe
-- Node.js + npm installes
-- MySQL accessible localement
-- application Discord configuree
+- navigate raids on a `Wednesday -> Tuesday` planning cycle
+- create weekly or one-off raids
+- build 2-group compositions visually
+- lock, validate, and publish raid compositions
+- compare a raid against a reference raid already prepared
+- monitor confirmations, absences, bench, and signup gaps
 
-### Base de donnees
+### Discord workflow
 
-Creer une base MySQL nommee `origin`, ou adapter la variable `SPRING_DATASOURCE_URL`.
+- publish signup messages to the correct guild channel
+- let players update their status directly from Discord
+- send reminder messages when signups are missing
+- publish final compositions with officer-ready formatting
 
-Par defaut en local :
+## Repository Structure
 
-```properties
-spring.datasource.url=jdbc:mysql://localhost:3306/origin?useSSL=false&serverTimezone=Europe/Paris
-spring.datasource.username=root
-spring.datasource.password=root
-```
+- [`src/main/java/com/origin/`](./src/main/java/com/origin): backend source code
+- [`src/main/resources/`](./src/main/resources): application configuration and resources
+- [`src/main/resources/db/migration/`](./src/main/resources/db/migration): Flyway migrations
+- [`raid-planner-ui/src/`](./raid-planner-ui/src): frontend source code
+- [`docker-compose.prod.yml`](./docker-compose.prod.yml): production stack definition
+- [`scripts/`](./scripts): deployment, backup, and restore scripts
 
-### Variables d'environnement utiles
+## Local Setup
 
-#### Bot Discord
+### Prerequisites
+
+- Java 15+
+- Maven
+- Node.js + npm
+- MySQL 8
+- a configured Discord application and bot
+
+### Backend
+
+Useful environment variables:
 
 - `DISCORD_BOT_TOKEN`
 - `DISCORD_GUILD_ID`
-
-#### OAuth Discord
-
 - `DISCORD_OAUTH_CLIENT_ID`
 - `DISCORD_OAUTH_CLIENT_SECRET`
 - `DISCORD_OAUTH_REDIRECT_URI`
 - `DISCORD_OAUTH_FRONTEND_SUCCESS_URL`
 - `DISCORD_OAUTH_FRONTEND_DENIED_URL`
 
-#### Raid-Helper / salons
-
-- `DISCORD_RAIDHELPER_CHANNEL_1`
-- `DISCORD_RAIDHELPER_CHANNEL_2`
-- `DISCORD_RAIDHELPER_CHANNEL_3`
-- `DISCORD_RAIDHELPER_CHANNEL_4`
-- `DISCORD_RAIDHELPER_DEFAULT_TIME`
-
-### Lancer le backend
-
-PowerShell :
+Run locally:
 
 ```powershell
-$env:DISCORD_BOT_TOKEN="ton_token_bot"
-$env:DISCORD_OAUTH_CLIENT_ID="ton_client_id"
-$env:DISCORD_OAUTH_CLIENT_SECRET="ton_client_secret"
+$env:DISCORD_BOT_TOKEN="..."
+$env:DISCORD_OAUTH_CLIENT_ID="..."
+$env:DISCORD_OAUTH_CLIENT_SECRET="..."
 mvn spring-boot:run
 ```
 
-### Lancer le frontend
+### Frontend
 
 ```powershell
 cd raid-planner-ui
@@ -138,170 +150,46 @@ npm install
 npm start
 ```
 
-Frontend :
-- [http://localhost:4200](http://localhost:4200)
+Default local URLs:
 
-Backend :
-- [http://localhost:8080](http://localhost:8080)
+- frontend: [http://localhost:4200](http://localhost:4200)
+- backend: [http://localhost:8080](http://localhost:8080)
 
-## Authentification Discord
+## Production Deployment
 
-L'application web est reservee aux officiers.
-
-Dans le Discord Developer Portal, il faut configurer :
-- Redirect URI : `http://localhost:8080/api/auth/discord/callback` en local
-- scopes OAuth : `identify` et `guilds.members.read`
-
-Le backend verifie que l'utilisateur connecte possede le role `Officiers` sur le serveur Discord.
-
-## Scheduler d'import
-
-Le scheduler d'import Raid-Helper est maintenant pilotable depuis l'interface admin.
-
-Il permet de choisir :
-- activation / desactivation
-- jour
-- heure
-- minute
-- fuseau
-
-Par defaut, l'import vise la publication des raids le jeudi a 21:00.
-
-## Migrations et schema
-
-Le projet supporte maintenant Flyway.
-
-### En local
-
-La configuration locale garde :
-
-```properties
-spring.jpa.hibernate.ddl-auto=update
-spring.flyway.enabled=false
-```
-
-### En production
-
-Le profil `prod` active :
-- `spring.jpa.hibernate.ddl-auto=validate`
-- `spring.flyway.enabled=true`
-
-La migration initiale est dans :
-- `src/main/resources/db/migration/V1__initial_schema.sql`
-
-Note :
-- `baseline-on-migrate=true` permet d'adopter Flyway sur une base existante sans la casser
-
-## Deploiement production
-
-Le repo contient un pack de prod minimal et propre :
-- backend conteneurise
-- frontend Nginx
-- MySQL
-- healthchecks
-- variables d'environnement
-
-### Fichiers
-
-- `docker-compose.prod.yml`
-- `Dockerfile.backend`
-- `raid-planner-ui/Dockerfile`
-- `raid-planner-ui/docker/nginx/default.conf`
-- `.env.prod.example`
-
-### Mise en place
-
-1. Copier `.env.prod.example` vers `.env.prod`
-2. Remplir les secrets Discord et MySQL
-3. Lancer :
+1. Copy [`.env.prod.example`](./.env.prod.example) to `.env.prod`
+2. Fill in Discord and MySQL secrets
+3. Start the production stack:
 
 ```bash
 docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
 ```
 
-## Sauvegarde et restauration
+Useful operational scripts:
 
-### Backup
+- [`scripts/deploy-frontend.sh`](./scripts/deploy-frontend.sh)
+- [`scripts/deploy-backend.sh`](./scripts/deploy-backend.sh)
+- [`scripts/deploy-all.sh`](./scripts/deploy-all.sh)
+- [`scripts/backup-db.sh`](./scripts/backup-db.sh)
+- [`scripts/restore-db.sh`](./scripts/restore-db.sh)
 
-```bash
-chmod +x scripts/*.sh
-./scripts/backup-db.sh
-```
+## Git Workflow Note
 
-### Restore
+The project currently uses two Git repositories:
 
-```bash
-./scripts/restore-db.sh backups/origin-YYYYMMDD-HHMMSS.sql.gz
-```
+- the root repository for backend, infrastructure, deployment scripts, and the frontend pointer
+- a separate frontend repository in [`raid-planner-ui/`](./raid-planner-ui)
 
-## Commandes utiles
+When a change affects the frontend:
 
-### Backend
+1. commit and push inside `raid-planner-ui`
+2. commit and push the root repository to update the frontend pointer
 
-Compiler sans tests :
+## Current Direction
 
-```bash
-mvn -DskipTests compiler:compile
-```
+The application is already usable in production for officer workflows. The most natural next steps are:
 
-Packager :
-
-```bash
-mvn -DskipTests package
-```
-
-### Frontend
-
-Build production :
-
-```bash
-cd raid-planner-ui
-npm run build
-```
-
-## Problemes courants
-
-### `Token may not be empty`
-
-Cause :
-- `DISCORD_BOT_TOKEN` n'est pas defini
-
-Fix :
-
-```powershell
-$env:DISCORD_BOT_TOKEN="ton_token_bot"
-```
-
-### L'auth Discord ne marche pas
-
-Verifier :
-- `DISCORD_OAUTH_CLIENT_ID`
-- `DISCORD_OAUTH_CLIENT_SECRET`
-- la Redirect URI dans le portail Discord
-- le scope `guilds.members.read`
-
-### Des messages Discord sont introuvables
-
-Les anciens messages supprimes ou archives peuvent remonter comme `Unknown Message`.
-Le backend degrade maintenant ce cas en log discret dans la plupart des flux.
-
-## Etat du projet
-
-Le projet est deja tres complet cote produit.
-
-Les prochains chantiers les plus naturels sont plutot :
-- fiabilite prod
-- monitoring
-- backups reguliers
-- polish UX final
-- durcissement des tests metier
-
-## Git
-
-Le projet utilise actuellement deux depots :
-- repo racine : backend + orchestration + pointeur vers le front
-- `raid-planner-ui/` : repo frontend dedie
-
-Workflow recommande si le front change :
-1. commit / push dans `raid-planner-ui/`
-2. commit / push du repo racine pour mettre a jour le pointeur
+- stronger automated test coverage
+- more observability and operational monitoring
+- continued UX refinement for officer decision-making
+- additional hardening around production automation

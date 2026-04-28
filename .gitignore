@@ -35,12 +35,18 @@ Thumbs.db
 # Environment and secrets
 .env
 .env.local
+.env.prod
 *.key
 *.crt
 *.pem
 *.jks
 application-*.yml
 application-*.properties
+
+# Local backups
+backups/*.sql
+backups/*.sql.gz
+backups/*.dump
 
 # ---- FRONTEND (Angular) ----
 
