@@ -82,11 +82,6 @@ services:
     image: louislam/uptime-kuma:1
     container_name: origin-monitoring
     restart: unless-stopped
-    depends_on:
-      backend:
-        condition: service_healthy
-      frontend:
-        condition: service_healthy
     ports:
       - "${MONITORING_BIND:-127.0.0.1:3001}:3001"
     volumes:
