@@ -306,17 +306,19 @@ public class AutoComposeService {
     }
 
     private int getEffectiveRaidBuffCoverage(List<CandidateCharacter> selected, ComposeRules rules) {
+        Map<String, List<BuffProviderRule>> buffRules = getRaidBuffRules();
         Set<String> directBuffs = new HashSet<>();
-        int hunterCount = 0;
+        List<PersonnageDTO> hunters = new ArrayList<>();
+        Set<String> assignedHunters = new HashSet<>();
 
         for (CandidateCharacter candidate : selected) {
             PersonnageDTO personnage = candidate.personnage;
             if ("chasseur".equals(normalizeKey(personnage.getClasse()))) {
-                hunterCount++;
+                hunters.add(personnage);
             }
 
-            for (Map.Entry<String, List<BuffProviderRule>> entry : getRaidBuffRules().entrySet()) {
-                if (entry.getValue().stream().anyMatch(rule -> matchesRule(personnage, rule))) {
+            for (Map.Entry<String, List<BuffProviderRule>> entry : buffRules.entrySet()) {
+                if (entry.getValue().stream().anyMatch(rule -> !isHunterFallbackRule(rule) && matchesRule(personnage, rule))) {
                     directBuffs.add(entry.getKey());
                 }
             }
@@ -326,8 +328,29 @@ public class AutoComposeService {
             return directBuffs.size();
         }
 
-        int missingBuffs = Math.max(0, getRaidBuffRules().size() - directBuffs.size());
-        return directBuffs.size() + Math.min(hunterCount, missingBuffs);
+        int effectiveCoverage = directBuffs.size();
+
+        for (Map.Entry<String, List<BuffProviderRule>> entry : buffRules.entrySet()) {
+            if (directBuffs.contains(entry.getKey())) {
+                continue;
+            }
+
+            PersonnageDTO availableHunter = hunters.stream()
+                    .filter(hunter -> !assignedHunters.contains(normalizeKey(hunter.getNom())))
+                    .filter(hunter -> entry.getValue().stream()
+                            .anyMatch(rule -> isHunterFallbackRule(rule) && matchesRule(hunter, rule)))
+                    .findFirst()
+                    .orElse(null);
+
+            if (availableHunter == null) {
+                continue;
+            }
+
+            assignedHunters.add(normalizeKey(availableHunter.getNom()));
+            effectiveCoverage++;
+        }
+
+        return effectiveCoverage;
     }
 
     private List<CandidateCharacter> buildCandidates(List<JoueurDTO> signups) {
@@ -458,6 +481,10 @@ public class AutoComposeService {
         }
         String normalizedSpec = normalizeKey(personnage.getSpecialisation());
         return rule.specialisations.stream().anyMatch(spec -> normalizeKey(spec).equals(normalizedSpec));
+    }
+
+    private boolean isHunterFallbackRule(BuffProviderRule rule) {
+        return "chasseur".equals(normalizeKey(rule.classe));
     }
 
     private int rolePriority(String role) {
