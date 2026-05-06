@@ -72,6 +72,28 @@ services:
       - "${FRONTEND_BIND:-127.0.0.1:8081}:80"
     environment:
       TZ: ${TZ:-Europe/Paris}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+
+  monitoring:
+    image: louislam/uptime-kuma:1
+    container_name: origin-monitoring
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    ports:
+      - "${MONITORING_BIND:-127.0.0.1:3001}:3001"
+    volumes:
+      - uptime-kuma:/app/data
+    environment:
+      TZ: ${TZ:-Europe/Paris}
 
 volumes:
   mysql-data:
+  uptime-kuma:

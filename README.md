@@ -81,6 +81,7 @@ The project is split into two applications:
 - Docker
 - Docker Compose
 - Nginx
+- Uptime Kuma
 - VPS deployment scripts
 - MySQL backup and restore scripts
 
@@ -172,6 +173,22 @@ Useful operational scripts:
 - [`scripts/deploy-all.sh`](./scripts/deploy-all.sh)
 - [`scripts/backup-db.sh`](./scripts/backup-db.sh)
 - [`scripts/restore-db.sh`](./scripts/restore-db.sh)
+
+### Monitoring
+
+The production stack includes a lightweight monitoring service based on **Uptime Kuma**.
+
+Suggested monitors:
+
+- frontend public URL: `https://planner.origin-raid.fr/`
+- backend health endpoint: `https://planner.origin-raid.fr/actuator/health`
+- optional internal monitor via local bind: `http://127.0.0.1:3001`
+
+By default, the monitoring UI is bound locally on the VPS:
+
+- `MONITORING_BIND=127.0.0.1:3001`
+
+This keeps the dashboard private by default. It can be reached through an SSH tunnel or published later behind your reverse proxy if needed.
 
 ## Git Workflow Note
 
