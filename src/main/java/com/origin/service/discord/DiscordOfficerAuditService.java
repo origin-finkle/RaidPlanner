@@ -12,6 +12,8 @@ import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import java.util.Optional;
@@ -23,6 +25,9 @@ public class DiscordOfficerAuditService {
 
     private static final DateTimeFormatter RAID_DATE_FORMATTER =
             DateTimeFormatter.ofPattern("EEEE d MMMM 'a' HH:mm", Locale.FRANCE);
+    private static final DateTimeFormatter AUDIT_TIME_FORMATTER =
+            DateTimeFormatter.ofPattern("HH:mm");
+    private static final ZoneId AUDIT_ZONE = ZoneId.of("Europe/Paris");
 
     private final JDA jda;
 
@@ -44,7 +49,7 @@ public class DiscordOfficerAuditService {
             throw new IllegalStateException("Salon Discord d'audit officier introuvable: " + channelId);
         }
 
-        channel.sendMessage("**Raid planner** - test audit officier OK.").complete();
+        channel.sendMessage(formatHeader() + " test audit officier OK.").complete();
         return "Message de test envoye dans #" + channel.getName() + ".";
     }
 
@@ -59,7 +64,7 @@ public class DiscordOfficerAuditService {
                 .map(value -> DiscordCustomSignupService.SignupStatus.fromKey(value).getKey())
                 .orElse(null);
 
-        String message = "**Raid planner** - " + formatRaid(raid) + "\n"
+        String message = formatHeader() + " " + formatRaid(raid) + "\n"
                 + formatPlayer(joueur, personnage)
                 + " " + describeSignupStatus(status, personnage, commentaire)
                 + formatPreviousStatus(previousStatus);
@@ -74,7 +79,7 @@ public class DiscordOfficerAuditService {
                 .map(value -> DiscordCustomSignupService.SignupStatus.fromKey(value).getKey())
                 .orElse(null);
 
-        String message = "**Raid planner** - " + formatRaid(raid) + "\n"
+        String message = formatHeader() + " " + formatRaid(raid) + "\n"
                 + formatPlayer(joueur, personnage)
                 + " a retire son inscription"
                 + formatPreviousStatus(previousStatus);
@@ -89,11 +94,15 @@ public class DiscordOfficerAuditService {
                 ? "a confirme sa presence dans la compo publiee"
                 : "a annule sa presence dans la compo publiee";
 
-        String message = "**Raid planner** - " + formatRaid(raid) + "\n"
+        String message = formatHeader() + " " + formatRaid(raid) + "\n"
                 + formatPlayer(joueur, null)
                 + " " + action;
 
         send(message);
+    }
+
+    private String formatHeader() {
+        return "[" + ZonedDateTime.now(AUDIT_ZONE).format(AUDIT_TIME_FORMATTER) + "] **Raid planner** -";
     }
 
     private void send(String message) {
