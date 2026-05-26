@@ -57,6 +57,7 @@ public class DiscordCustomSignupService {
     private final JoueurRepository joueurRepository;
     private final PersonnageRepository personnageRepository;
     private final InscriptionRepository inscriptionRepository;
+    private final DiscordOfficerAuditService discordOfficerAuditService;
     private final JDA jda;
 
     public String publishTestSignupMessage(Long raidId) {
@@ -195,14 +196,17 @@ public class DiscordCustomSignupService {
         }
 
         SignupStatus status = SignupStatus.fromKey(statusKey);
+        Inscription previousSignup = findExistingSignupForAudit(raidId, joueur).orElse(null);
+        String sanitizedComment = sanitizeComment(status, commentaire);
         purgeConflictingRaidSignups(raidId, joueur);
         inscriptionRepository.save(Inscription.builder()
                 .raid(raid)
                 .personnage(personnage)
                 .statut(status.name())
-                .commentaire(sanitizeComment(status, commentaire))
+                .commentaire(sanitizedComment)
                 .build());
 
+        discordOfficerAuditService.notifySignupChange(raid, joueur, personnage, status, sanitizedComment, previousSignup);
         return status.getSuccessMessage(personnage.getNom());
     }
 
@@ -213,8 +217,35 @@ public class DiscordCustomSignupService {
         Joueur joueur = joueurRepository.findByDiscordId(discordId)
                 .orElseThrow(() -> new IllegalArgumentException("Joueur Discord introuvable."));
 
+        Inscription removedSignup = findExistingSignupForAudit(raid.getId(), joueur).orElse(null);
         purgeConflictingRaidSignups(raid.getId(), joueur);
+        if (removedSignup != null) {
+            discordOfficerAuditService.notifySignupRemoval(raid, joueur, removedSignup);
+        }
         return "Ton inscription a ete retiree pour " + raid.getNom() + ".";
+    }
+
+    private Optional<Inscription> findExistingSignupForAudit(Long raidId, Joueur joueur) {
+        List<Inscription> existingSignups = inscriptionRepository.findDetailedByRaidIdOrderByIdAsc(raidId);
+        if (existingSignups.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Set<String> rosterCharacterNames = personnageRepository.findByJoueurId(joueur.getId()).stream()
+                .map(Personnage::getNom)
+                .map(this::normalizeIdentityKey)
+                .filter(value -> value != null && !value.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        Set<String> playerIdentityKeys = new LinkedHashSet<>();
+        addIdentityKey(playerIdentityKeys, joueur.getDiscordId());
+        addIdentityKey(playerIdentityKeys, joueur.getServerPseudo());
+        addIdentityKey(playerIdentityKeys, joueur.getPseudoIhm());
+        addIdentityKey(playerIdentityKeys, joueur.getPseudo());
+
+        return existingSignups.stream()
+                .filter(inscription -> belongsToSameSignupCluster(inscription, joueur, playerIdentityKeys, rosterCharacterNames))
+                .findFirst();
     }
 
     private void purgeConflictingRaidSignups(Long raidId, Joueur joueur) {

@@ -2,6 +2,7 @@ package com.origin.service;
 
 import com.origin.entity.*;
 import com.origin.repository.*;
+import com.origin.service.discord.DiscordOfficerAuditService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -12,6 +13,7 @@ public class RaidInscriptionService {
     private final RaidRepository raidRepository;
     private final JoueurRepository joueurRepository;
     private final RaidInscriptionRepository raidInscriptionRepository;
+    private final DiscordOfficerAuditService discordOfficerAuditService;
 
     public void confirmParticipation(Long raidId, String discordId) {
         Raid raid = raidRepository.findById(raidId)
@@ -29,6 +31,7 @@ public class RaidInscriptionService {
 
         inscription.setStatut(RaidInscription.StatutInscription.CONFIRME);
         raidInscriptionRepository.save(inscription);
+        discordOfficerAuditService.notifyCompositionConfirmation(raid, joueur, RaidInscription.StatutInscription.CONFIRME);
     }
 
     public void cancelParticipation(Long raidId, String discordId) {
@@ -47,5 +50,6 @@ public class RaidInscriptionService {
 
         inscription.setStatut(RaidInscription.StatutInscription.ANNULE);
         raidInscriptionRepository.save(inscription);
+        discordOfficerAuditService.notifyCompositionConfirmation(raid, joueur, RaidInscription.StatutInscription.ANNULE);
     }
 }
