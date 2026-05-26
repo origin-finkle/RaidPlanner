@@ -37,6 +37,7 @@ import com.origin.service.discord.RaidDiscordScannerService;
 import com.origin.service.discord.MissingRaidPingService;
 import com.origin.service.discord.DiscordCustomSignupService;
 import com.origin.service.discord.DiscordChannelDirectoryService;
+import com.origin.service.discord.DiscordOfficerAuditService;
 import com.origin.service.discord.RaidImportSchedulerSettingsService;
 import com.origin.service.discord.RaidQueryService;
 import lombok.RequiredArgsConstructor;
@@ -70,6 +71,7 @@ public class RaidController {
     private final RaidTemplateOccurrenceService raidTemplateOccurrenceService;
     private final DiscordCustomSignupService discordCustomSignupService;
     private final DiscordChannelDirectoryService discordChannelDirectoryService;
+    private final DiscordOfficerAuditService discordOfficerAuditService;
     private final RaidImportSchedulerSettingsService raidImportSchedulerSettingsService;
 
 
@@ -260,6 +262,14 @@ public class RaidController {
     @GetMapping("/discord/channels")
     public ResponseEntity<List<DiscordChannelOptionDTO>> getWritableDiscordChannels() {
         return ResponseEntity.ok(discordChannelDirectoryService.getWritableTextChannels());
+    }
+
+    @PostMapping("/officer-audit/test")
+    public ResponseEntity<Map<String, Object>> sendOfficerAuditTest() {
+        return ResponseEntity.ok(Map.of(
+                "channelId", discordOfficerAuditService.getConfiguredChannelId(),
+                "message", discordOfficerAuditService.sendTestMessage()
+        ));
     }
 
     @PostMapping("/templates")

@@ -29,6 +29,25 @@ public class DiscordOfficerAuditService {
     @Value("${discord.officer-audit.channel-id:}")
     private String officerAuditChannelId;
 
+    public String getConfiguredChannelId() {
+        return officerAuditChannelId == null ? "" : officerAuditChannelId.trim();
+    }
+
+    public String sendTestMessage() {
+        String channelId = getConfiguredChannelId();
+        if (channelId.isBlank()) {
+            throw new IllegalStateException("Salon d'audit officier non configure.");
+        }
+
+        TextChannel channel = jda.getTextChannelById(channelId);
+        if (channel == null) {
+            throw new IllegalStateException("Salon Discord d'audit officier introuvable: " + channelId);
+        }
+
+        channel.sendMessage("**Raid planner** - test audit officier OK.").complete();
+        return "Message de test envoye dans #" + channel.getName() + ".";
+    }
+
     public void notifySignupChange(Raid raid,
                                    Joueur joueur,
                                    Personnage personnage,
@@ -78,13 +97,14 @@ public class DiscordOfficerAuditService {
     }
 
     private void send(String message) {
-        if (officerAuditChannelId == null || officerAuditChannelId.isBlank()) {
+        String channelId = getConfiguredChannelId();
+        if (channelId.isBlank()) {
             return;
         }
 
-        TextChannel channel = jda.getTextChannelById(officerAuditChannelId.trim());
+        TextChannel channel = jda.getTextChannelById(channelId);
         if (channel == null) {
-            log.warn("Salon Discord d'audit officier introuvable: {}", officerAuditChannelId);
+            log.warn("Salon Discord d'audit officier introuvable: {}", channelId);
             return;
         }
 
