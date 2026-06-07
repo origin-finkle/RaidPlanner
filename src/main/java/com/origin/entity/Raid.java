@@ -9,9 +9,8 @@ import lombok.Setter;
 
 import javax.persistence.*;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 @Entity
@@ -92,15 +91,23 @@ public class Raid {
     @Builder.Default
     private Boolean ignoreWeeklyConflicts = false;
 
-    @OneToMany(fetch = FetchType.LAZY)
-    @JoinColumn(name = "group1_id")
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "raid_group1",
+            joinColumns = @JoinColumn(name = "raid_id"),
+            inverseJoinColumns = @JoinColumn(name = "personnage_id")
+    )
     @Builder.Default
-    private Set<Personnage> group1 = new HashSet<>();
+    private Set<Personnage> group1 = new LinkedHashSet<>();
 
-    @OneToMany(fetch = FetchType.LAZY)
-    @JoinColumn(name = "group2_id")
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "raid_group2",
+            joinColumns = @JoinColumn(name = "raid_id"),
+            inverseJoinColumns = @JoinColumn(name = "personnage_id")
+    )
     @Builder.Default
-    private Set<Personnage> group2 = new HashSet<>();
+    private Set<Personnage> group2 = new LinkedHashSet<>();
 
     public boolean isCompositionLocked() {
         return Boolean.TRUE.equals(compositionLocked);
