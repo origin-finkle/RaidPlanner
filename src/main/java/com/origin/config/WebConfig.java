@@ -26,7 +26,7 @@ public class WebConfig implements WebMvcConfigurer {
                         .map(String::trim)
                         .filter(value -> !value.isEmpty())
                         .toArray(String[]::new))
-                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
                 .allowCredentials(true);
     }
